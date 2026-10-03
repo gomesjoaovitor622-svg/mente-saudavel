@@ -1,0 +1,25 @@
+name: mente_saudavel
+description: Psicoterapia acessível - app com banco SQLite local (IFRO - Desenvolvimento para Dispositivos Móveis).
+publish_to: 'none'
+version: 1.0.0+1
+
+environment:
+  sdk: '>=3.3.0 <4.0.0'
+
+dependencies:
+  flutter:
+    sdk: flutter
+  flutter_localizations:
+    sdk: flutter
+  sqflite: ^2.4.2      # banco SQLite local
+  path: ^1.9.1         # monta o caminho do arquivo do banco
+  crypto: ^3.0.6       # hash SHA-256 das senhas
+  http: ^1.2.2         # chamadas às APIs (BrasilAPI e ViaCEP)
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  flutter_lints: any
+
+flutter:
+  uses-material-design: true

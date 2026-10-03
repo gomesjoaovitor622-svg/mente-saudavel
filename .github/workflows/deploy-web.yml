@@ -1,0 +1,61 @@
+name: Publicar versão Web
+
+# Publica o app como site no GitHub Pages.
+# Antes, ative: Settings > Pages > Build and deployment > Source: "GitHub Actions".
+on:
+  push:
+    branches: [main, master]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Baixar o código
+        uses: actions/checkout@v4
+
+      - name: Instalar Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+
+      - name: Gerar a pasta web (numa pasta temporária, sem tocar no seu código)
+        run: |
+          flutter create --platforms=web --project-name mente_saudavel /tmp/gerado
+          cp -r /tmp/gerado/web ./web
+
+      - name: Ativar o SQLite no navegador
+        run: |
+          cp web_overrides/database_factory_setup.web.txt lib/database/database_factory_setup.dart
+          flutter pub add sqflite_common_ffi_web
+          dart run sqflite_common_ffi_web:setup
+          ls -la web | grep -i "sqlite3.wasm"
+
+      - name: Compilar o site
+        run: flutter build web --release --base-href "/${{ github.event.repository.name }}/"
+
+      - name: Preparar o envio para o Pages
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: build/web
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - name: Publicar no GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4

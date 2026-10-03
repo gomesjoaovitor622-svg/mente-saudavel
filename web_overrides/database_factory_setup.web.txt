@@ -1,0 +1,8 @@
+import 'package:sqflite/sqflite.dart' show databaseFactory;
+import 'package:sqflite_common_ffi_web/sqflite_ffi_web.dart' show databaseFactoryFfiWebNoWebWorker;
+
+/// Versão WEB: usa SQLite compilado para WebAssembly (sqlite3.wasm).
+/// Os dados ficam gravados no IndexedDB do navegador, neste mesmo site.
+Future<void> configurarBanco() async {
+  databaseFactory = databaseFactoryFfiWebNoWebWorker;
+}
