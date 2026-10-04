@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:mente_saudavel/models/usuario.dart';
+import 'package:mente_saudavel/screens/banco_screen.dart';
 import 'package:mente_saudavel/services/api_service.dart';
 import 'package:mente_saudavel/services/auth_service.dart';
 import 'package:mente_saudavel/utils/app_exception.dart';
@@ -233,6 +234,15 @@ class _PerfilTabState extends State<PerfilTab> {
               onPressed: _alterarSenha,
               icon: const Icon(Icons.lock_reset),
               label: const Text('Alterar senha'),
+            ),
+            const SizedBox(height: 8),
+            OutlinedButton.icon(
+              onPressed: () => Navigator.push(
+                context,
+                MaterialPageRoute(builder: (_) => const BancoScreen()),
+              ),
+              icon: const Icon(Icons.storage_outlined),
+              label: const Text('Ver banco de dados (SQLite)'),
             ),
             const SizedBox(height: 8),
             OutlinedButton.icon(

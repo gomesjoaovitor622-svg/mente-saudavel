@@ -103,6 +103,12 @@ usuarios (id PK, nome, email UNIQUE NOCASE, senha_hash, salt, perfil, registro, 
 - Senhas são gravadas como **SHA-256 com sal** (nunca em texto puro).
 - Banco criado e populado no `onCreate`; `onOpen` roda o script `IF NOT EXISTS` (auto-correção).
 
+### Como ver e usar o banco
+- **No app:** *Perfil → Ver banco de dados (SQLite)*: tabelas, estrutura, dados, consultas SELECT (somente leitura) e
+  botão **Copiar script SQL completo**. As senhas ficam ocultas. Funciona no celular e na web.
+- **No computador:** a pasta `banco_de_dados/` tem um `.db` de exemplo, o script SQL e consultas prontas
+  (abra no DB Browser for SQLite ou em sqliteviewer.app). Veja `banco_de_dados/LEIA-ME_BANCO.md`.
+
 ## 7. Estrutura do código (para explicar na apresentação)
 
 ```text
