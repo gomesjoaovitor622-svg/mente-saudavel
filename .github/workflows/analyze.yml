@@ -1,0 +1,34 @@
+name: Analisar código
+
+# Roda o analisador do Flutter em qualquer branch e publica o resultado na branch ci-logs-analise.
+on:
+  push:
+    branches-ignore: ['ci-logs*']
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  analisar:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+
+      - name: Analisar
+        run: |
+          flutter --version > /tmp/analise.log 2>&1 || true
+          flutter pub get >> /tmp/analise.log 2>&1 || true
+          flutter analyze --no-pub >> /tmp/analise.log 2>&1 || true
+          cat /tmp/analise.log | tail -n 80
+
+      - name: Publicar o log
+        if: always()
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: sh tools/publicar_log.sh /tmp/analise.log analise
