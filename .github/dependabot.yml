@@ -1,0 +1,15 @@
+# Mantém actions fixadas por SHA e dependências Python atualizadas (via Pull Request).
+version: 2
+updates:
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+    commit-message:
+      prefix: ci
+  - package-ecosystem: pip
+    directory: /ci/api-validation
+    schedule:
+      interval: weekly
+    commit-message:
+      prefix: deps

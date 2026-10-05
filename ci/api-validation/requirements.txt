@@ -1,0 +1,7 @@
+# Dependências do harness de testes (versões fixas = execuções reproduzíveis).
+# O Dependabot (.github/dependabot.yml) propõe atualizações via Pull Request.
+pytest==8.3.5
+pytest-timeout==2.3.1
+pytest-rerunfailures==15.0
+requests==2.32.3
+jsonschema==4.23.0
