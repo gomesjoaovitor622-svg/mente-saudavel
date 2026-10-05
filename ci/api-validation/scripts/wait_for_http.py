@@ -39,10 +39,11 @@ def processo_vivo(pid_file: str | None) -> bool:
         return True
 
 
-def tentar(url: str, esperado: int, trecho: str | None) -> str | None:
+def tentar(url: str, esperado: int, trecho: str | None, user_agent: str) -> str | None:
     """Retorna None se saudável, ou a descrição do problema."""
     try:
-        with urllib.request.urlopen(url, timeout=2) as resp:  # noqa: S310 (URL controlada pelo workflow)
+        req = urllib.request.Request(url, headers={"User-Agent": user_agent})
+        with urllib.request.urlopen(req, timeout=5) as resp:  # noqa: S310 (URL controlada pelo workflow)
             corpo = resp.read(65536).decode("utf-8", "replace")
             if resp.status != esperado:
                 return f"HTTP {resp.status} (esperado {esperado})"
@@ -64,6 +65,7 @@ def main() -> int:
     ap.add_argument("--expect-status", type=int, default=200)
     ap.add_argument("--contains", default=None)
     ap.add_argument("--pid-file", default=None)
+    ap.add_argument("--user-agent", default="api-validation-healthcheck/1.0")
     args = ap.parse_args()
 
     inicio = time.monotonic()
@@ -76,7 +78,7 @@ def main() -> int:
         if not processo_vivo(args.pid_file):
             print(f"SERVER_EXITED: o processo do serviço terminou antes de ficar saudável (tentativa {tentativa})")
             return 3
-        problema = tentar(args.url, args.expect_status, args.contains)
+        problema = tentar(args.url, args.expect_status, args.contains, args.user_agent)
         decorrido = time.monotonic() - inicio
         if problema is None:
             print(f"HEALTHCHECK_OK {args.url} após {decorrido:.1f}s ({tentativa} tentativa(s))")

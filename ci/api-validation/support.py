@@ -22,9 +22,10 @@ class CorsPolicyViolation(AssertionError):
 def expect_status(resp, expected: int | Iterable[int], label: str) -> None:
     esperados = (expected,) if isinstance(expected, int) else tuple(expected)
     if resp.status_code not in esperados:
+        trecho = " ".join((resp.text or "").split())[:160]
         raise ContractViolation(
             f"[CONTRACT] {label}: esperado HTTP {'/'.join(map(str, esperados))}, "
-            f"recebido {resp.status_code}"
+            f"recebido {resp.status_code} | corpo: {trecho or '(vazio)'}"
         )
 
 

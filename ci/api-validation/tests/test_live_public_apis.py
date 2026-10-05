@@ -114,3 +114,37 @@ def test_jitsi_disponivel(public):
     """O app abre https://meet.jit.si/<sala> no navegador (navegação, sem CORS)."""
     r = public.get("https://meet.jit.si/MenteSaudavel-teste-ci", allow_redirects=True)
     expect_status(r, 200, "Jitsi Meet (sala)")
+
+
+# ----------------------------------------------------------------------------- o app de verdade (User-Agent)
+# O app no celular usa o cliente HTTP do Dart ("Dart/x (dart:io)"); na web usa o navegador.
+# Alguns WAFs bloqueiam User-Agents desconhecidos, então validamos com os agentes reais do app.
+USER_AGENTS = {
+    "app-celular-dart": "Dart/3.13 (dart:io)",
+    "app-web-chrome": "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0 Safari/537.36",
+}
+CHAMADAS_DO_APP = {
+    "brasilapi-feriados": BRASILAPI_FERIADOS,
+    "viacep": VIACEP.format(cep=CEP_VALIDO),
+    "brasilapi-cep-v2": BRASILAPI_CEP.format(cep=CEP_VALIDO),
+}
+
+
+@pytest.mark.contract
+@pytest.mark.parametrize("agente", sorted(USER_AGENTS))
+@pytest.mark.parametrize("chamada", sorted(CHAMADAS_DO_APP))
+def test_apis_respondem_ao_user_agent_do_app(chamada, agente):
+    import requests
+    r = requests.get(CHAMADAS_DO_APP[chamada], headers={"User-Agent": USER_AGENTS[agente]}, timeout=(5, 15))
+    expect_status(r, 200, f"{chamada} com User-Agent {agente}")
+
+
+@pytest.mark.contract
+def test_brasilapi_cep_v2_inexistente_nao_devolve_endereco_falso(public):
+    """Se a API devolver 200 para CEP inexistente, o app NÃO pode mostrar um endereço inventado."""
+    r = public.get(BRASILAPI_CEP.format(cep=CEP_INEXISTENTE))
+    if r.status_code == 404:
+        return
+    corpo = r.json() if r.headers.get("Content-Type", "").startswith("application/json") else {}
+    rua = (corpo.get("street") or "").strip() if isinstance(corpo, dict) else ""
+    assert not rua, f"API devolveu 200 com endereço para CEP inexistente: {str(corpo)[:200]}"

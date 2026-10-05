@@ -177,7 +177,7 @@ def montar_markdown(ctx: dict) -> str:
     for chave, (titulo, icone, _) in CATEGORIAS.items():
         itens = por_cat.get(chave, [])
         extra = ctx["achados_log"].get(chave, [])
-        if not itens and not extra:
+        if not itens and not (extra and not falhas):
             continue
         linhas += ["", f"## {icone} {titulo}", ""]
         for f in itens[:15]:
@@ -186,7 +186,7 @@ def montar_markdown(ctx: dict) -> str:
                 linhas.append(f"  - 💡 {dica}")
         if len(itens) > 15:
             linhas.append(f"- … e mais {len(itens) - 15} falha(s) (veja o artefato `junit`).")
-        if extra and not itens:
+        if extra and not itens and not falhas:
             linhas.append("Evidências no log bruto:")
             linhas += [f"- `{e}`" for e in extra]
 
