@@ -1,0 +1,44 @@
+commit: a5225cb34bd8484f6951609c978025697dff00b1
+branch: dev
+data:   2026-10-05T00:49:20Z
+
+# 🩺 Diagnóstico automático — `live`
+
+**Veredito:** ✅ APROVADO &nbsp;|&nbsp; código de saída original: `0`
+
+| Testes | Aprovados | Falhas | Erros | Pulados | Duração |
+|---:|---:|---:|---:|---:|---:|
+| 17 | 16 | 0 | 0 | 1 | 1.1s |
+
+Nenhuma falha detectada. Nada a fazer. 🎉
+
+# 🩺 Diagnóstico automático — `mock-py3.11`
+
+**Veredito:** ✅ APROVADO &nbsp;|&nbsp; código de saída original: `0`
+
+| Testes | Aprovados | Falhas | Erros | Pulados | Duração |
+|---:|---:|---:|---:|---:|---:|
+| 65 | 65 | 0 | 0 | 0 | 3.1s |
+
+Nenhuma falha detectada. Nada a fazer. 🎉
+
+# 🩺 Diagnóstico automático — `mock-py3.12`
+
+**Veredito:** ✅ APROVADO &nbsp;|&nbsp; código de saída original: `0`
+
+| Testes | Aprovados | Falhas | Erros | Pulados | Duração |
+|---:|---:|---:|---:|---:|---:|
+| 65 | 65 | 0 | 0 | 0 | 3.0s |
+
+Nenhuma falha detectada. Nada a fazer. 🎉
+
+# 🩺 Diagnóstico automático — `selftest`
+
+**Veredito:** ✅ APROVADO &nbsp;|&nbsp; código de saída original: `0`
+
+| Testes | Aprovados | Falhas | Erros | Pulados | Duração |
+|---:|---:|---:|---:|---:|---:|
+| 13 | 13 | 0 | 0 | 0 | 2.6s |
+
+Nenhuma falha detectada. Nada a fazer. 🎉
+
