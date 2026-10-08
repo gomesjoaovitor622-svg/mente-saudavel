@@ -1,0 +1,78 @@
+[project]
+name = "apival"
+version = "1.0.0"
+description = "Toolkit de validação de contratos de API, CORS e segurança, com diagnóstico automático e relatórios de conformidade."
+requires-python = ">=3.11"
+readme = "README.md"
+
+# ---------------------------------------------------------------------------- pytest
+[tool.pytest.ini_options]
+testpaths = ["unit", "tests"]
+pythonpath = ["."]
+addopts = "-ra --strict-markers --strict-config --tb=short -p no:cacheprovider"
+junit_family = "xunit2"
+junit_suite_name = "api-validation"
+timeout = 30                       # nenhum teste pode travar o pipeline
+filterwarnings = ["error"]
+markers = [
+    "reference: roda contra o serviço de referência local (determinístico, sem internet)",
+    "live: roda contra APIs públicas reais (BrasilAPI, ViaCEP, Jitsi); depende de terceiros",
+    "contract: valida status HTTP e schemas de request/response",
+    "conformance: conformidade dirigida pela especificação OpenAPI",
+    "cors: valida a política CORS (requisição simples, preflight, credenciais)",
+    "security: valida controles de segurança (headers, limites, autenticação, injeção)",
+]
+
+# ---------------------------------------------------------------------------- ruff
+[tool.ruff]
+line-length = 120
+target-version = "py311"
+
+[tool.ruff.lint]
+select = ["E", "W", "F", "I", "B", "S", "UP", "SIM", "PL", "RUF", "C4", "PT", "PERF", "ANN", "T20", "ARG", "RET", "TRY", "EM"]
+ignore = [
+    "TRY003",   # mensagens longas em exceções próprias são intencionais (texto para o usuário final)
+    "EM101", "EM102",
+    "PLR0913",  # funções de teste/fixture com vários parâmetros
+]
+
+[tool.ruff.lint.per-file-ignores]
+# CLIs: a saída padrão É a interface (códigos de saída + mensagens para o GitHub Actions).
+"apival/diagnose.py" = ["T201"]
+"apival/healthcheck.py" = ["T201"]
+"apival/leakscan.py" = ["T201"]
+"apival/executive.py" = ["T201"]
+"reference_service/server.py" = ["T201"]
+# Testes: assert é o mecanismo do pytest; anotações de função e asserts compostos são opcionais.
+"tests/**" = ["S101", "PLR2004", "S105", "S106", "ARG001", "ANN", "PT018", "T201", "E501"]
+"unit/**" = ["S101", "PLR2004", "S104", "S105", "S106", "S108", "ARG001", "ARG002", "ARG005", "ANN", "PT018", "PLC0415", "SLF001", "E501"]
+
+# ---------------------------------------------------------------------------- mypy
+[tool.mypy]
+python_version = "3.11"
+strict = true
+warn_unreachable = true
+files = ["apival", "reference_service", "tests", "unit"]
+
+# Rigor máximo no código de produto; nos testes a anotação de funções é opcional.
+[[tool.mypy.overrides]]
+module = ["tests.*", "unit.*"]
+disallow_untyped_defs = false
+disallow_incomplete_defs = false
+disallow_untyped_decorators = false
+disallow_untyped_calls = false
+
+# ---------------------------------------------------------------------------- coverage
+[tool.coverage.run]
+source = ["apival", "reference_service"]
+branch = true
+
+[tool.coverage.report]
+fail_under = 90
+show_missing = true
+skip_covered = true
+exclude_also = ["if __name__ == .__main__.:", "raise NotImplementedError"]
+
+# ---------------------------------------------------------------------------- bandit
+[tool.bandit]
+exclude_dirs = ["tests", "unit"]

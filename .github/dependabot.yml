@@ -1,15 +1,21 @@
-# Mantém actions fixadas por SHA e dependências Python atualizadas (via Pull Request).
+# Mantém actions fixadas por SHA e dependências atualizadas, via Pull Request.
+# `cooldown` espera alguns dias antes de adotar uma versão recém-publicada: reduz o risco de
+# instalar um release comprometido (ataque de cadeia de suprimentos) antes de ser detectado.
 version: 2
 updates:
   - package-ecosystem: github-actions
     directory: /
     schedule:
       interval: weekly
+    cooldown:
+      default-days: 7
     commit-message:
       prefix: ci
   - package-ecosystem: pip
     directory: /ci/api-validation
     schedule:
       interval: weekly
+    cooldown:
+      default-days: 7
     commit-message:
       prefix: deps

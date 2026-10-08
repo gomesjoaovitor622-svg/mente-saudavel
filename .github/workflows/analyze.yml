@@ -1,34 +1,47 @@
-name: Analisar código
+name: Analisar código (Flutter)
 
-# Roda o analisador do Flutter em qualquer branch e publica o resultado na branch ci-logs-analise.
+# Análise estática do app (`flutter analyze`). Os problemas viram anotações no PR/commit.
 on:
   push:
-    branches-ignore: ['ci-logs*']
+    branches: [main, master, dev]
+  pull_request:
+    branches: [main, master]
   workflow_dispatch:
 
-permissions:
-  contents: write
+concurrency:
+  group: analyze-${{ github.head_ref || github.ref }}
+  cancel-in-progress: true
+
+permissions: {}
+
+defaults:
+  run:
+    shell: bash
 
 jobs:
   analisar:
-    runs-on: ubuntu-latest
+    name: flutter analyze
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    permissions:
+      contents: read
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
 
-      - uses: subosito/flutter-action@v2
+      - uses: subosito/flutter-action@1a449444c387b1966244ae4d4f8c696479add0b2 # v2.23.0
         with:
           channel: stable
           cache: true
 
-      - name: Analisar
-        run: |
-          flutter --version > /tmp/analise.log 2>&1 || true
-          flutter pub get >> /tmp/analise.log 2>&1 || true
-          flutter analyze --no-pub >> /tmp/analise.log 2>&1 || true
-          cat /tmp/analise.log | tail -n 80
+      - name: Baixar dependências
+        run: flutter pub get
 
-      - name: Publicar o log
-        if: always()
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: sh tools/publicar_log.sh /tmp/analise.log analise
+      - name: Analisar (erros e avisos reprovam; "info" não)
+        run: |
+          set +e
+          flutter analyze --no-pub --no-fatal-infos 2>&1 | tee "$RUNNER_TEMP/analyze.txt"
+          code=${PIPESTATUS[0]}
+          python3 tools/flutter_annotations.py < "$RUNNER_TEMP/analyze.txt"
+          exit "$code"

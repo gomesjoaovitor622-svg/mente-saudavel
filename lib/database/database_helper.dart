@@ -3,6 +3,7 @@ import 'package:path/path.dart';
 import 'package:sqflite/sqflite.dart';
 import 'package:mente_saudavel/database/database_schema.dart';
 import 'package:mente_saudavel/database/database_seed.dart';
+import 'package:mente_saudavel/utils/build_flags.dart';
 
 /// Abre (e cria, se necessário) o banco SQLite local do aparelho.
 class DatabaseHelper {
@@ -28,10 +29,12 @@ class DatabaseHelper {
         onConfigure: (db) async {
           await db.execute('PRAGMA foreign_keys = ON');
         },
-        // 1ª execução: cria as tabelas e grava os dados de demonstração.
+        // 1ª execução: cria as tabelas. Dados de exemplo só em builds de DEMONSTRAÇÃO.
         onCreate: (db, versao) async {
           await DatabaseSchema.executar(db);
-          await DatabaseSeed.executar(db);
+          if (kDemoMode) {
+            await DatabaseSeed.executar(db);
+          }
         },
         // Toda abertura: garante que as tabelas existem (auto-correção).
         onOpen: (db) async {

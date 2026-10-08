@@ -1,0 +1,5 @@
+# Ferramentas de supply-chain e auditoria de workflows.
+pip-audit>=2.7
+cyclonedx-bom>=5
+detect-secrets>=1.5
+zizmor>=1.0

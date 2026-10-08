@@ -7,10 +7,12 @@ de política CORS feitas por terceiros ("contract drift"), inclusive no agendame
 O app só faz GET simples (sem headers customizados) => não dispara preflight no navegador.
 O teste de preflight é informativo: pula (skip) se a API não suporta OPTIONS.
 """
-import pytest
 
-import schemas
-from support import (cors_check, expect_json, expect_status, validate_schema)
+import pytest
+import requests
+
+from apival import third_party
+from apival.checks import cors_check, expect_json, expect_status, validate_schema
 
 pytestmark = [pytest.mark.live]
 
@@ -23,9 +25,11 @@ CEP_INEXISTENTE = "99999999"
 
 def _allow_origin_ok(resp, origin, api):
     valor = resp.headers.get("Access-Control-Allow-Origin")
-    cors_check(valor in ("*", origin),
-               f"{api}: o navegador em '{origin}' seria bloqueado "
-               f"(Access-Control-Allow-Origin='{valor}'). O app web não conseguiria chamar esta API.")
+    cors_check(
+        valor in ("*", origin),
+        f"{api}: o navegador em '{origin}' seria bloqueado "
+        f"(Access-Control-Allow-Origin='{valor}'). O app web não conseguiria chamar esta API.",
+    )
 
 
 # ----------------------------------------------------------------------------- BrasilAPI: feriados
@@ -34,7 +38,7 @@ def test_brasilapi_feriados_contrato(public):
     r = public.get(BRASILAPI_FERIADOS)
     expect_status(r, 200, "BrasilAPI feriados 2026")
     corpo = expect_json(r, "BrasilAPI feriados")
-    validate_schema(corpo, schemas.BRASILAPI_FERIADOS, "BrasilAPI feriados")
+    validate_schema(corpo, third_party.BRASILAPI_FERIADOS, "BrasilAPI feriados")
     datas = {i["date"] for i in corpo}
     assert "2026-12-25" in datas, "Natal ausente: contrato de dados mudou"
 
@@ -48,9 +52,14 @@ def test_brasilapi_feriados_cors(public, allowed_origin):
 
 @pytest.mark.cors
 def test_brasilapi_feriados_preflight_informativo(public, allowed_origin):
-    r = public.options(BRASILAPI_FERIADOS, headers={
-        "Origin": allowed_origin, "Access-Control-Request-Method": "GET",
-        "Access-Control-Request-Headers": "content-type"})
+    r = public.options(
+        BRASILAPI_FERIADOS,
+        headers={
+            "Origin": allowed_origin,
+            "Access-Control-Request-Method": "GET",
+            "Access-Control-Request-Headers": "content-type",
+        },
+    )
     if r.status_code not in (200, 204):
         pytest.skip(f"OPTIONS retornou {r.status_code}; o app usa GET simples (sem preflight)")
     _allow_origin_ok(r, allowed_origin, "BrasilAPI feriados (preflight)")
@@ -61,7 +70,7 @@ def test_brasilapi_feriados_preflight_informativo(public, allowed_origin):
 def test_viacep_cep_valido_contrato(public):
     r = public.get(VIACEP.format(cep=CEP_VALIDO))
     expect_status(r, 200, "ViaCEP CEP válido")
-    validate_schema(expect_json(r, "ViaCEP"), schemas.VIACEP_OK, "ViaCEP CEP válido")
+    validate_schema(expect_json(r, "ViaCEP"), third_party.VIACEP_OK, "ViaCEP CEP válido")
 
 
 @pytest.mark.contract
@@ -91,7 +100,7 @@ def test_viacep_cors(public, allowed_origin):
 def test_brasilapi_cep_v2_contrato(public):
     r = public.get(BRASILAPI_CEP.format(cep=CEP_VALIDO))
     expect_status(r, 200, "BrasilAPI CEP v2")
-    validate_schema(expect_json(r, "BrasilAPI CEP"), schemas.BRASILAPI_CEP_V2, "BrasilAPI CEP v2")
+    validate_schema(expect_json(r, "BrasilAPI CEP"), third_party.BRASILAPI_CEP_V2, "BrasilAPI CEP v2")
 
 
 @pytest.mark.cors
@@ -127,16 +136,20 @@ CHAMADAS_DO_APP = {
 @pytest.mark.parametrize("agente", sorted(USER_AGENTS))
 @pytest.mark.parametrize("chamada", sorted(CHAMADAS_DO_APP))
 def test_apis_respondem_ao_user_agent_do_app(chamada, agente):
-    import requests
+
     r = requests.get(CHAMADAS_DO_APP[chamada], headers={"User-Agent": USER_AGENTS[agente]}, timeout=(5, 15))
     expect_status(r, 200, f"{chamada} com User-Agent {agente}")
 
 
 @pytest.mark.contract
-@pytest.mark.xfail(strict=False, reason=(
-    "COMPORTAMENTO CONHECIDO: a BrasilAPI v2 responde 200 com um endereço (fonte open-cep) mesmo para CEP "
-    "inexistente (ex.: 99999999). Por isso o app só usa a BrasilAPI como plano B quando o ViaCEP FALHA, e "
-    "NUNCA depois de o ViaCEP dizer 'CEP não encontrado'. Se a API for corrigida, este teste passa (XPASS)."))
+@pytest.mark.xfail(
+    strict=False,
+    reason=(
+        "COMPORTAMENTO CONHECIDO: a BrasilAPI v2 responde 200 com um endereço (fonte open-cep) mesmo para CEP "
+        "inexistente (ex.: 99999999). Por isso o app só usa a BrasilAPI como plano B quando o ViaCEP FALHA, e "
+        "NUNCA depois de o ViaCEP dizer 'CEP não encontrado'. Se a API for corrigida, este teste passa (XPASS)."
+    ),
+)
 def test_brasilapi_cep_v2_inexistente_nao_devolve_endereco_falso(public):
     """Documenta (sem reprovar o pipeline) que a BrasilAPI v2 não é confiável para detectar CEP inexistente."""
     r = public.get(BRASILAPI_CEP.format(cep=CEP_INEXISTENTE))

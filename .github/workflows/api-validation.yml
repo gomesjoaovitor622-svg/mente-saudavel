@@ -1,42 +1,32 @@
 name: API Validation
 
-# Valida contrato (status + schema) e conformidade CORS das APIs, em ambiente isolado.
-#  - selftest ....... testa o próprio harness (diagnóstico e health-check)
-#  - mock-suite ..... sobe o serviço de referência em segundo plano e roda contrato + CORS (OBRIGATÓRIO)
-#  - live-suite ..... valida as APIs públicas reais usadas pelo app (informativo, a menos que live_blocking=true)
-#  - gate ........... único status check a exigir na proteção de branch
-#  - publish-report . guarda o diagnóstico na branch ci-logs-api-validation (única job com permissão de escrita)
+# Pipeline de validação de contrato (OpenAPI), CORS e segurança de APIs, com relatório executivo.
+#   quality ........... lint, tipagem estrita, SAST, testes unitários e cobertura
+#   reference-suite ... sobe o serviço isolado e roda contrato + conformidade + CORS + segurança (OBRIGATÓRIO)
+#   live-suite ........ APIs públicas reais usadas pelo produto (informativo, salvo live_blocking=true)
+#   gate .............. único check de contrato/segurança a exigir na proteção de branch
+#   executive-report .. relatório de conformidade + atestado de procedência (única job com id-token)
 
 on:
   push:
     branches: [main, master, dev]
-    paths:
-      - 'ci/api-validation/**'
-      - '.github/workflows/api-validation.yml'
-      - 'lib/services/api_service.dart'
-      - 'lib/services/links_service.dart'
-  pull_request:            # nunca pull_request_target: código de forks não recebe segredos
+  pull_request:                   # nunca pull_request_target: código de forks não recebe segredos
     branches: [main, master]
-    paths:
-      - 'ci/api-validation/**'
-      - '.github/workflows/api-validation.yml'
-      - 'lib/services/api_service.dart'
-      - 'lib/services/links_service.dart'
   schedule:
-    - cron: '17 6 * * *'   # diário: detecta mudança de contrato/CORS feita por terceiros
+    - cron: '17 6 * * *'          # diário: detecta mudança de contrato/CORS feita por terceiros
   workflow_dispatch:
     inputs:
       suite:
         description: 'Quais suítes executar'
         type: choice
-        options: [all, mock, live]
+        options: [all, reference, live]
         default: all
       target_origin:
-        description: 'Origem autorizada usada nos testes de CORS (esquema://host[:porta])'
+        description: 'Origem autorizada nos testes de CORS (esquema://host[:porta])'
         type: string
         default: 'https://gomesjoaovitor622-svg.github.io'
       health_timeout:
-        description: 'Segundos máximos de espera pelo health-check do serviço'
+        description: 'Segundos máximos de espera pelo health-check do serviço (1-999)'
         type: string
         default: '30'
       max_retries:
@@ -50,100 +40,120 @@ on:
       service_start_command:
         description: 'Comando que inicia o serviço sob teste (somente "python caminho/arquivo.py")'
         type: string
-        default: 'python mock_server/server.py'
+        default: 'python -m reference_service.server'
 
-# Execuções obsoletas da mesma branch/PR são canceladas assim que uma nova chega.
+# Em PR e em branches de trabalho, uma execução nova cancela a anterior. Em main nunca cancelamos:
+# a trilha de auditoria de cada commit precisa ficar completa.
 concurrency:
   group: api-validation-${{ github.head_ref || github.ref }}
-  cancel-in-progress: true
+  cancel-in-progress: ${{ github.event_name == 'pull_request' || (github.ref != 'refs/heads/main' && github.ref != 'refs/heads/master') }}
 
-# Privilégio mínimo: nada por padrão. Cada job declara só o que precisa.
-permissions: {}
+permissions: {}                   # nada por padrão; cada job declara o mínimo
 
 env:
   PYTHONUNBUFFERED: '1'
+  PYTHONDONTWRITEBYTECODE: '1'
   PIP_DISABLE_PIP_VERSION_CHECK: '1'
   PIP_NO_INPUT: '1'
   TZ: UTC
 
 defaults:
   run:
-    shell: bash          # = bash -eo pipefail: qualquer erro em pipeline derruba o step
+    shell: bash                   # bash -eo pipefail: erro em qualquer pipeline derruba o step
     working-directory: ci/api-validation
 
 jobs:
   # ---------------------------------------------------------------------------
-  selftest:
-    name: Selftest do harness
+  quality:
+    name: Quality (lint, tipos, SAST, unit)
     runs-on: ubuntu-24.04
-    timeout-minutes: 10
+    timeout-minutes: 15
     permissions:
       contents: read
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
-          persist-credentials: false   # o token não fica gravado no .git
+          persist-credentials: false
 
       - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
         with:
           python-version: '3.12'
           cache: pip
-          cache-dependency-path: ci/api-validation/requirements.txt
+          cache-dependency-path: |
+            ci/api-validation/requirements.txt
+            ci/api-validation/requirements-quality.txt
 
-      - name: Instalar dependências
-        run: pip install -r requirements.txt
+      - name: Instalar dependências (hashes SHA-256 obrigatórios)
+        run: pip install --require-hashes -r requirements.txt -r requirements-quality.txt
 
-      - name: Compilar e testar o harness
-        id: tests
+      - name: Ruff - lint
+        if: ${{ !cancelled() }}
+        run: ruff check . --output-format=github
+
+      - name: Ruff - formatação
+        if: ${{ !cancelled() }}
+        run: ruff format --check --diff .
+
+      - name: Mypy - tipagem estrita
+        if: ${{ !cancelled() }}
+        run: mypy
+
+      - name: Bandit - SAST
+        if: ${{ !cancelled() }}
+        run: bandit -q -c pyproject.toml -r apival reference_service
+
+      - name: Testes unitários e cobertura (mínimo 90%)
+        id: unit
+        if: ${{ !cancelled() }}
         run: |
           set +e
           mkdir -p reports
-          { python -m compileall -q . && pytest selftest -q -p no:cacheprovider \
-              --junitxml=reports/junit-selftest.xml; } 2>&1 | tee reports/pytest.log
+          pytest unit --cov --cov-report=term --cov-report=xml:reports/coverage.xml \
+            --junitxml=reports/junit-unit.xml 2>&1 | tee reports/unit.log
           code=${PIPESTATUS[0]}
           echo "exit_code=$code" >> "$GITHUB_OUTPUT"
           exit "$code"
 
       - name: Diagnóstico automático
-        if: ${{ always() }}
+        if: ${{ !cancelled() }}
         env:
-          EXIT_CODE: ${{ steps.tests.outputs.exit_code }}
+          EXIT_CODE: ${{ steps.unit.outputs.exit_code }}
         run: |
           mkdir -p reports
-          python scripts/diagnose.py --junit "reports/junit-*.xml" --log reports/pytest.log \
-            --exit-code "${EXIT_CODE:-1}" --leg selftest --json reports/diagnosis.json --md reports/diagnosis.md
+          python -m apival.diagnose --junit "reports/junit-unit.xml" --log reports/unit.log \
+            --exit-code "${EXIT_CODE:-1}" --leg quality --json reports/diagnosis.json --md reports/diagnosis.md
 
       - name: Enviar relatórios
-        if: ${{ always() }}
+        if: ${{ !cancelled() }}
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
-          name: reports-selftest
+          name: reports-quality
           path: |
             ci/api-validation/reports/diagnosis.md
             ci/api-validation/reports/diagnosis.json
-            ci/api-validation/reports/junit-*.xml
+            ci/api-validation/reports/junit-unit.xml
+            ci/api-validation/reports/coverage.xml
           retention-days: 7
           if-no-files-found: warn
 
   # ---------------------------------------------------------------------------
-  mock-suite:
-    name: Mock (py${{ matrix.python-version }})
-    needs: selftest
+  reference-suite:
+    name: Reference (py${{ matrix.python-version }})
     if: ${{ github.event.inputs.suite != 'live' }}
     runs-on: ubuntu-24.04
     timeout-minutes: 15
     permissions:
       contents: read
     strategy:
-      fail-fast: false             # uma versão com problema não esconde o resultado das outras
+      fail-fast: false            # uma versão com problema não esconde o resultado das outras
       matrix:
-        python-version: ['3.11', '3.12']
+        python-version: ['3.11', '3.12', '3.13']
     env:
       # Entradas do usuário chegam por variáveis de ambiente (nunca interpoladas dentro de scripts).
       TARGET_ORIGIN: ${{ inputs.target_origin || 'https://gomesjoaovitor622-svg.github.io' }}
       HEALTH_TIMEOUT: ${{ inputs.health_timeout || '30' }}
-      SERVICE_CMD: ${{ inputs.service_start_command || 'python mock_server/server.py' }}
-      LEG: mock-py${{ matrix.python-version }}
+      SERVICE_CMD: ${{ inputs.service_start_command || 'python -m reference_service.server' }}
+      LEG: reference-py${{ matrix.python-version }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -155,21 +165,29 @@ jobs:
           cache: pip
           cache-dependency-path: ci/api-validation/requirements.txt
 
-      - name: Instalar dependências
-        run: pip install -r requirements.txt
+      - name: Instalar dependências (hashes SHA-256 obrigatórios)
+        run: pip install --require-hashes -r requirements.txt
 
       - name: Validar parâmetros (defesa contra injeção de comando)
         run: |
-          [[ "$HEALTH_TIMEOUT" =~ ^[0-9]{1,3}$ ]]    || { echo "::error::health_timeout inválido (use 1-999)"; exit 1; }
+          [[ "$HEALTH_TIMEOUT" =~ ^[0-9]{1,3}$ ]] || { echo "::error::health_timeout inválido (use 1-999)"; exit 1; }
           [[ "$TARGET_ORIGIN" =~ ^https?://[A-Za-z0-9.-]+(:[0-9]{1,5})?$ ]] || { echo "::error::target_origin inválido"; exit 1; }
-          [[ "$SERVICE_CMD" =~ ^python[[:space:]][A-Za-z0-9_./-]+$ ]]      || { echo "::error::service_start_command inválido"; exit 1; }
+          [[ "$SERVICE_CMD" =~ ^python[[:space:]](-m[[:space:]])?[A-Za-z0-9_][A-Za-z0-9_./-]*$ ]] || { echo "::error::service_start_command inválido"; exit 1; }
+          [[ "$SERVICE_CMD" != *..* ]] || { echo "::error::service_start_command não pode conter '..'"; exit 1; }
 
-      - name: Iniciar o serviço em segundo plano (ambiente limpo, só loopback)
+      - name: Gerar token efêmero (mascarado, nunca persistido)
+        run: |
+          token="$(openssl rand -hex 24)"
+          echo "::add-mask::$token"
+          echo "API_AUTH_TOKEN=$token" >> "$GITHUB_ENV"
+
+      - name: Iniciar o serviço em segundo plano (ambiente limpo, somente loopback)
         run: |
           mkdir -p reports
-          # env -i: o serviço NÃO herda variáveis do runner (nem segredos); escuta só em 127.0.0.1.
+          # env -i: o serviço NÃO herda variáveis do runner (nem segredos) e escuta apenas em 127.0.0.1.
           nohup env -i PATH="$PATH" HOME="$HOME" PYTHONUNBUFFERED=1 \
             ALLOWED_ORIGINS="$TARGET_ORIGIN,http://localhost:8080" MOCK_HOST=127.0.0.1 MOCK_PORT=8765 \
+            API_AUTH_TOKEN_EXPECTED="$API_AUTH_TOKEN" SOCKET_TIMEOUT_S=2 \
             bash -c "exec $SERVICE_CMD" > reports/server.log 2>&1 &
           echo $! > reports/server.pid
 
@@ -177,22 +195,30 @@ jobs:
         id: health
         run: |
           set +e
-          python scripts/wait_for_http.py "http://127.0.0.1:8765/health" --timeout "$HEALTH_TIMEOUT" \
+          python -m apival.healthcheck "http://127.0.0.1:8765/health" --timeout "$HEALTH_TIMEOUT" \
             --pid-file reports/server.pid --contains '"status": "ok"' 2>&1 | tee reports/health.log
           code=${PIPESTATUS[0]}
           echo "exit_code=$code" >> "$GITHUB_OUTPUT"
           exit "$code"
 
-      - name: Testes de contrato e CORS
+      - name: Testes de contrato, conformidade OpenAPI, CORS e segurança
         id: tests
         env:
-          API_AUTH_TOKEN: ${{ secrets.API_AUTH_TOKEN }}   # opcional; só existe neste step; nunca vai a APIs de terceiros
+          SOCKET_TIMEOUT_S: '2'
         run: |
           set +e
-          pytest -m mock --junitxml="reports/junit-$LEG.xml" 2>&1 | tee reports/pytest.log
+          pytest tests -m reference --junitxml="reports/junit-$LEG.xml" 2>&1 | tee reports/pytest.log
           code=${PIPESTATUS[0]}
           echo "exit_code=$code" >> "$GITHUB_OUTPUT"
           exit "$code"
+
+      - name: Encerrar o serviço
+        if: ${{ always() }}
+        run: kill "$(cat reports/server.pid 2>/dev/null)" 2>/dev/null || true
+
+      - name: Varredura de vazamento (o token não pode estar em nenhum relatório)
+        if: ${{ always() }}
+        run: python -m apival.leakscan --env-var API_AUTH_TOKEN --path reports
 
       - name: Diagnóstico automático
         if: ${{ always() }}
@@ -201,20 +227,16 @@ jobs:
           HEALTH_EXIT: ${{ steps.health.outputs.exit_code }}
         run: |
           mkdir -p reports
-          python scripts/diagnose.py --junit "reports/junit-*.xml" --log reports/pytest.log \
+          python -m apival.diagnose --junit "reports/junit-*.xml" --log reports/pytest.log \
             --health-log reports/health.log --server-log reports/server.log \
             --exit-code "${TESTS_EXIT:-${HEALTH_EXIT:-1}}" --leg "$LEG" \
             --json reports/diagnosis.json --md reports/diagnosis.md
-
-      - name: Encerrar o serviço
-        if: ${{ always() }}
-        run: kill "$(cat reports/server.pid 2>/dev/null)" 2>/dev/null || true
 
       - name: Enviar relatórios (sempre, retenção curta)
         if: ${{ always() }}
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
-          name: reports-mock-py${{ matrix.python-version }}
+          name: reports-reference-py${{ matrix.python-version }}
           path: |
             ci/api-validation/reports/diagnosis.md
             ci/api-validation/reports/diagnosis.json
@@ -226,7 +248,7 @@ jobs:
         if: ${{ failure() }}
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
-          name: failure-dumps-mock-py${{ matrix.python-version }}
+          name: failure-dumps-reference-py${{ matrix.python-version }}
           path: ci/api-validation/reports/*.log
           retention-days: 14
           if-no-files-found: ignore
@@ -234,11 +256,11 @@ jobs:
   # ---------------------------------------------------------------------------
   live-suite:
     name: Live (APIs públicas)
-    needs: selftest
-    if: ${{ github.event.inputs.suite != 'mock' }}
+    # Não roda em PR (reduz carga em terceiros e flakiness); roda em push, agenda diária e manual.
+    if: ${{ github.event_name != 'pull_request' && github.event.inputs.suite != 'reference' }}
     runs-on: ubuntu-24.04
     timeout-minutes: 15
-    # Terceiros são instáveis: por padrão a falha NÃO reprova o pipeline (vira aviso no gate).
+    # Terceiros oscilam: por padrão a falha NÃO reprova o pipeline (vira aviso no gate).
     continue-on-error: ${{ github.event.inputs.live_blocking != 'true' }}
     permissions:
       contents: read
@@ -257,8 +279,8 @@ jobs:
           cache: pip
           cache-dependency-path: ci/api-validation/requirements.txt
 
-      - name: Instalar dependências
-        run: pip install -r requirements.txt
+      - name: Instalar dependências (hashes SHA-256 obrigatórios)
+        run: pip install --require-hashes -r requirements.txt
 
       - name: Validar parâmetros
         run: |
@@ -270,15 +292,15 @@ jobs:
         run: |
           set +e
           mkdir -p reports
-          python scripts/wait_for_http.py "https://brasilapi.com.br/api/feriados/v1/2026" --timeout 30 2>&1 | tee reports/health.log
+          python -m apival.healthcheck "https://brasilapi.com.br/api/feriados/v1/2026" --timeout 30 2>&1 | tee reports/health.log
           echo "exit_code=${PIPESTATUS[0]}" >> "$GITHUB_OUTPUT"
-          exit 0   # informativo: os testes rodam mesmo assim e cada um relata seu próprio erro
+          exit 0   # informativo: os testes rodam mesmo assim e cada um relata o seu erro
 
-      - name: Testes das APIs públicas (com reexecução de testes instáveis)
+      - name: Testes das APIs públicas (reexecução de testes instáveis)
         id: tests
         run: |
           set +e
-          pytest -m live --reruns "$MAX_RETRIES" --reruns-delay 2 --junitxml=reports/junit-live.xml 2>&1 | tee reports/pytest.log
+          pytest tests -m live --reruns "$MAX_RETRIES" --reruns-delay 2 --junitxml=reports/junit-live.xml 2>&1 | tee reports/pytest.log
           code=${PIPESTATUS[0]}
           echo "exit_code=$code" >> "$GITHUB_OUTPUT"
           exit "$code"
@@ -289,7 +311,7 @@ jobs:
           TESTS_EXIT: ${{ steps.tests.outputs.exit_code }}
         run: |
           mkdir -p reports
-          python scripts/diagnose.py --junit "reports/junit-*.xml" --log reports/pytest.log \
+          python -m apival.diagnose --junit "reports/junit-*.xml" --log reports/pytest.log \
             --health-log reports/health.log --exit-code "${TESTS_EXIT:-1}" --leg "$LEG" \
             --json reports/diagnosis.json --md reports/diagnosis.md
 
@@ -316,27 +338,27 @@ jobs:
 
   # ---------------------------------------------------------------------------
   gate:
-    name: Gate (exigir este check na proteção de branch)
-    needs: [selftest, mock-suite, live-suite]
+    name: Gate
+    needs: [quality, reference-suite, live-suite]
     if: ${{ always() }}
     runs-on: ubuntu-24.04
     timeout-minutes: 2
-    permissions: {}                  # este job não precisa de nenhuma permissão
+    permissions: {}               # este job não precisa de nenhuma permissão
     defaults:
       run:
         working-directory: .
     steps:
       - name: Consolidar resultados
         env:
-          SELFTEST: ${{ needs.selftest.result }}
-          MOCK: ${{ needs.mock-suite.result }}
+          QUALITY: ${{ needs.quality.result }}
+          REFERENCE: ${{ needs.reference-suite.result }}
           LIVE: ${{ needs.live-suite.result }}
           LIVE_BLOCKING: ${{ github.event.inputs.live_blocking }}
         run: |
-          echo "selftest=$SELFTEST | mock=$MOCK | live=$LIVE (bloqueante: ${LIVE_BLOCKING:-false})"
+          echo "quality=$QUALITY | reference=$REFERENCE | live=$LIVE (bloqueante: ${LIVE_BLOCKING:-false})"
           falhou=0
-          [[ "$SELFTEST" == "success" ]] || falhou=1
-          [[ "$MOCK" == "success" || "$MOCK" == "skipped" ]] || falhou=1
+          [[ "$QUALITY" == "success" ]] || falhou=1
+          [[ "$REFERENCE" == "success" || "$REFERENCE" == "skipped" ]] || falhou=1
           if [[ "$LIVE_BLOCKING" == "true" ]]; then
             [[ "$LIVE" == "success" || "$LIVE" == "skipped" ]] || falhou=1
           elif [[ "$LIVE" == "failure" ]]; then
@@ -345,31 +367,49 @@ jobs:
           exit $falhou
 
   # ---------------------------------------------------------------------------
-  publish-report:
-    name: Publicar relatórios (branch ci-logs-api-validation)
-    needs: [mock-suite, live-suite]
-    # Não roda em PRs (forks não podem escrever) e pode ser desligado: variável de repositório PUBLISH_REPORTS=false
-    if: ${{ always() && github.event_name != 'pull_request' && vars.PUBLISH_REPORTS != 'false' }}
+  executive-report:
+    name: Relatório executivo e atestado
+    needs: [quality, reference-suite, live-suite]
+    if: ${{ always() && !cancelled() }}
     runs-on: ubuntu-24.04
     timeout-minutes: 5
     permissions:
-      contents: write              # única permissão de escrita do workflow, restrita a este job
+      contents: read
+      id-token: write             # assinatura keyless do atestado (Sigstore)
+      attestations: write         # grava o atestado de procedência
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
+
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: '3.12'
 
       - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         with:
           pattern: reports-*
           path: ci/api-validation/relatorios
 
-      - name: Publicar o diagnóstico consolidado
+      - name: Instalar dependências (hashes SHA-256 obrigatórios)
+        run: pip install --require-hashes -r requirements.txt
+
+      - name: Gerar relatório executivo (Markdown + HTML + manifesto SHA-256)
         env:
-          GH_TOKEN: ${{ github.token }}
+          NEEDS_JSON: ${{ toJSON(needs) }}
         run: |
-          shopt -s nullglob
-          : > /tmp/consolidado.md
-          for f in relatorios/*/diagnosis.md; do cat "$f" >> /tmp/consolidado.md; echo >> /tmp/consolidado.md; done
-          [[ -s /tmp/consolidado.md ]] || echo "(nenhum relatório encontrado)" > /tmp/consolidado.md
-          sh ../../tools/publicar_log.sh /tmp/consolidado.md api-validation
+          python -m apival.executive --diagnosis 'relatorios/**/diagnosis.json' --out-dir reports/executive
+
+      - name: Enviar relatório executivo (retenção de 90 dias para auditoria)
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: executive-report
+          path: ci/api-validation/reports/executive/
+          retention-days: 90
+          if-no-files-found: error
+
+      - name: Atestar procedência do relatório (SLSA)
+        if: ${{ github.event_name != 'pull_request' }}   # PRs de forks não recebem id-token
+        uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
+        with:
+          subject-path: ci/api-validation/reports/executive/*

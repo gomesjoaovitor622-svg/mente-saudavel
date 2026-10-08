@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:mente_saudavel/screens/cadastro_screen.dart';
 import 'package:mente_saudavel/services/auth_service.dart';
 import 'package:mente_saudavel/utils/app_exception.dart';
+import 'package:mente_saudavel/utils/build_flags.dart';
 import 'package:mente_saudavel/utils/validators.dart';
 import 'package:mente_saudavel/widgets/componentes.dart';
 
@@ -135,21 +136,24 @@ class _LoginScreenState extends State<LoginScreen> {
                       child: const Text('Criar uma conta'),
                     ),
                   ),
-                  const SizedBox(height: 24),
-                  Container(
-                    padding: const EdgeInsets.all(12),
-                    decoration: BoxDecoration(
-                      color: Colors.white,
-                      borderRadius: BorderRadius.circular(12),
-                      border: Border.all(color: Colors.grey.shade300),
-                    ),
-                    child: Text(
-                      'Contas de demonstração\n'
-                      'Profissional: helena@mentesaudavel.app / mente123\n'
-                      'Paciente: carlos@email.com / 123456',
-                      style: TextStyle(color: Colors.grey.shade700, fontSize: 12),
-                    ),
-                  ),
+                  // Credenciais de exemplo SOMENTE em builds de demonstração (nunca em produção).
+                  if (kDemoMode) ...[
+                      const SizedBox(height: 24),
+                      Container(
+                        padding: const EdgeInsets.all(12),
+                        decoration: BoxDecoration(
+                          color: Colors.white,
+                          borderRadius: BorderRadius.circular(12),
+                          border: Border.all(color: Colors.grey.shade300),
+                        ),
+                        child: Text(
+                          'Contas de demonstração\n'
+                          'Profissional: helena@mentesaudavel.app / mente123\n'
+                          'Paciente: carlos@email.com / 123456',
+                          style: TextStyle(color: Colors.grey.shade700, fontSize: 12),
+                        ),
+                      ),
+                  ],
                 ],
               ),
             ),

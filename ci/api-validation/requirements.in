@@ -1,0 +1,10 @@
+# Dependências DIRETAS de execução (suítes de teste e toolkit apival).
+# O arquivo travado (requirements.txt, com hashes SHA-256) é gerado por:
+#   uv pip compile requirements.in --universal --generate-hashes -o requirements.txt
+pytest>=9.0.3,<10
+pytest-timeout>=2.3,<3
+pytest-rerunfailures>=15,<17
+requests>=2.32,<3
+jsonschema>=4.23,<5
+pyyaml>=6,<7
+defusedxml>=0.7.1,<0.8

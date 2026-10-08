@@ -1,0 +1,243 @@
+openapi: 3.1.0
+info:
+  title: Reference Service API
+  version: 1.0.0
+  description: |
+    Contrato do serviço de referência usado como sistema sob teste pelo pipeline de validação.
+    Esta especificação é a FONTE ÚNICA DA VERDADE: os testes de conformidade executam os casos
+    declarados em `x-conformance` e validam status e corpo contra os schemas abaixo.
+servers:
+  - url: http://127.0.0.1:8765
+    description: Execução local / runner do CI (somente loopback)
+
+x-cors:
+  description: Política CORS aplicada a todas as rotas (ver docs/SECURITY-CONTROLS.md).
+  allowedOrigins: "lista exata configurada em ALLOWED_ORIGINS (comparação por igualdade, nunca por sufixo)"
+  allowedMethods: [GET, POST, OPTIONS]
+  allowedHeaders: [content-type, authorization, x-requested-with]
+  exposedHeaders: [X-Request-Id]
+  maxAgeSeconds: 600
+  credentials: true
+  wildcardWithCredentials: forbidden
+
+paths:
+  /health:
+    get:
+      operationId: getHealth
+      summary: Verificação de saúde (pública, sem autenticação)
+      responses:
+        "200":
+          description: Serviço saudável
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Health" }
+      x-conformance:
+        - { name: serviço saudável, path: /health, status: 200 }
+
+  /api/v1/feriados/{ano}:
+    get:
+      operationId: getFeriados
+      summary: Feriados nacionais fixos de um ano
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - { name: ano, in: path, required: true, schema: { type: string, pattern: '^\d{4}$' }, example: "2026" }
+      responses:
+        "200":
+          description: Lista de feriados
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Feriados" }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "429": { $ref: "#/components/responses/RateLimited" }
+      x-conformance-exempt: [429]
+      x-conformance:
+        - { name: ano válido, path: /api/v1/feriados/2026, status: 200 }
+        - { name: ano não numérico, path: /api/v1/feriados/abc, status: 400 }
+        - { name: ano curto demais, path: /api/v1/feriados/20, status: 400 }
+        - { name: ano antes de 1900, path: /api/v1/feriados/1800, status: 400 }
+        - { name: ano depois de 2100, path: /api/v1/feriados/2101, status: 400 }
+        - { name: sem credenciais, path: /api/v1/feriados/2026, status: 401, requires_auth: true, headers: { Authorization: null } }
+        - { name: token inválido, path: /api/v1/feriados/2026, status: 401, requires_auth: true, headers: { Authorization: "Bearer token-invalido-0000" } }
+
+  /api/v1/cep/{cep}:
+    get:
+      operationId: getCep
+      summary: Endereço de um CEP
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - { name: cep, in: path, required: true, schema: { type: string, pattern: '^\d{8}$' }, example: "01001000" }
+      responses:
+        "200":
+          description: Endereço encontrado
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Cep" }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "429": { $ref: "#/components/responses/RateLimited" }
+      x-conformance-exempt: [429]
+      x-conformance:
+        - { name: CEP existente, path: /api/v1/cep/01001000, status: 200 }
+        - { name: CEP inexistente, path: /api/v1/cep/99999999, status: 404 }
+        - { name: CEP curto, path: /api/v1/cep/123, status: 400 }
+        - { name: CEP com letras, path: /api/v1/cep/abcdefgh, status: 400 }
+        - { name: CEP longo, path: /api/v1/cep/010010000, status: 400 }
+        - { name: sem credenciais, path: /api/v1/cep/01001000, status: 401, requires_auth: true, headers: { Authorization: null } }
+
+  /api/v1/sessoes/validar:
+    post:
+      operationId: validarSessao
+      summary: Valida os dados de agendamento e devolve a sala de videochamada
+      security: [{ bearerAuth: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/ValidarRequest" }
+      responses:
+        "200":
+          description: Dados válidos
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ValidarOk" }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "413": { $ref: "#/components/responses/PayloadTooLarge" }
+        "415": { $ref: "#/components/responses/UnsupportedMediaType" }
+        "422": { $ref: "#/components/responses/Unprocessable" }
+        "429": { $ref: "#/components/responses/RateLimited" }
+      x-conformance-exempt: [429]
+      x-conformance:
+        - name: payload válido
+          path: /api/v1/sessoes/validar
+          status: 200
+          body: { paciente_id: 1, profissional_id: 2, data_hora: "2026-10-10T14:00:00", modalidade: Online }
+        - name: campos ausentes
+          path: /api/v1/sessoes/validar
+          status: 422
+          body: {}
+        - name: modalidade inválida
+          path: /api/v1/sessoes/validar
+          status: 422
+          body: { paciente_id: 1, profissional_id: 2, data_hora: "2026-10-10T14:00:00", modalidade: Remoto }
+        - name: id negativo
+          path: /api/v1/sessoes/validar
+          status: 422
+          body: { paciente_id: -3, profissional_id: 2, data_hora: "2026-10-10T14:00:00", modalidade: Online }
+        - name: JSON malformado
+          path: /api/v1/sessoes/validar
+          status: 400
+          body_text: "{nao-e-json"
+          headers: { Content-Type: application/json }
+        - name: media type errado
+          path: /api/v1/sessoes/validar
+          status: 415
+          body_text: "x=1"
+          headers: { Content-Type: text/plain }
+        - name: corpo acima do limite
+          path: /api/v1/sessoes/validar
+          status: 413
+          security: true
+          repeat_body_bytes: 70000
+          headers: { Content-Type: application/json }
+        - name: sem credenciais
+          path: /api/v1/sessoes/validar
+          status: 401
+          requires_auth: true
+          headers: { Authorization: null }
+          body: { paciente_id: 1, profissional_id: 2, data_hora: "2026-10-10T14:00:00", modalidade: Online }
+
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      description: Exigido nas rotas /api/* quando o serviço é iniciado com API_AUTH_TOKEN_EXPECTED.
+  schemas:
+    Error:
+      type: object
+      required: [error]
+      properties:
+        error:
+          type: object
+          required: [code, message]
+          properties:
+            code: { type: string, minLength: 1 }
+            message: { type: string, minLength: 1 }
+            details:
+              type: array
+              items:
+                type: object
+                required: [field, message]
+                properties:
+                  field: { type: string }
+                  message: { type: string }
+    Health:
+      type: object
+      required: [status, version, uptime_s]
+      properties:
+        status: { const: ok }
+        version: { type: string }
+        uptime_s: { type: number, minimum: 0 }
+    Feriado:
+      type: object
+      required: [date, name, type]
+      properties:
+        date: { type: string, pattern: '^\d{4}-\d{2}-\d{2}$' }
+        name: { type: string, minLength: 1 }
+        type: { type: string }
+    Feriados:
+      type: array
+      minItems: 1
+      items: { $ref: "#/components/schemas/Feriado" }
+    Cep:
+      type: object
+      required: [cep, logradouro, bairro, localidade, uf]
+      properties:
+        cep: { type: string, pattern: '^\d{8}$' }
+        logradouro: { type: string }
+        bairro: { type: string }
+        localidade: { type: string }
+        uf: { type: string, minLength: 2, maxLength: 2 }
+    ValidarRequest:
+      type: object
+      required: [paciente_id, profissional_id, data_hora, modalidade]
+      properties:
+        paciente_id: { type: integer, minimum: 1 }
+        profissional_id: { type: integer, minimum: 1 }
+        data_hora: { type: string, format: date-time }
+        modalidade: { type: string, enum: [Online, Presencial] }
+    ValidarOk:
+      type: object
+      required: [valid, sala]
+      properties:
+        valid: { const: true }
+        sala: { type: string, pattern: '^MenteSaudavel-[0-9a-f]{12}$' }
+  responses:
+    BadRequest:
+      description: Requisição malformada
+      content: { application/json: { schema: { $ref: "#/components/schemas/Error" } } }
+    Unauthorized:
+      description: Credenciais ausentes ou inválidas
+      headers:
+        WWW-Authenticate: { schema: { type: string } }
+      content: { application/json: { schema: { $ref: "#/components/schemas/Error" } } }
+    NotFound:
+      description: Recurso inexistente
+      content: { application/json: { schema: { $ref: "#/components/schemas/Error" } } }
+    PayloadTooLarge:
+      description: Corpo acima de 64 KiB
+      content: { application/json: { schema: { $ref: "#/components/schemas/Error" } } }
+    UnsupportedMediaType:
+      description: Content-Type diferente de application/json
+      content: { application/json: { schema: { $ref: "#/components/schemas/Error" } } }
+    Unprocessable:
+      description: Payload bem formado, porém inválido
+      content: { application/json: { schema: { $ref: "#/components/schemas/Error" } } }
+    RateLimited:
+      description: Limite de requisições excedido
+      headers:
+        Retry-After: { schema: { type: integer, minimum: 1 } }
+      content: { application/json: { schema: { $ref: "#/components/schemas/Error" } } }

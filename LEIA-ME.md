@@ -4,29 +4,23 @@ App de **psicoterapia acessível** baseado no vídeo enviado: criar conta em pas
 **Profissional**, painel de cada perfil, agendamento de sessões. **Todos os dados ficam em um banco SQLite local**
 no celular (`mente_saudavel.db`), e o app funciona offline. As APIs (feriados e CEP) são opcionais.
 
-## 1. Como baixar o APK no celular (sem instalar nada no PC)
+## 1. Como obter o APK
 
-O APK é compilado na nuvem pelo **GitHub Actions** (gratuito). Passo a passo:
+O APK é compilado na nuvem (GitHub Actions). Há dois tipos de build:
 
-1. No GitHub, crie um repositório novo (sugestão: **público**, minutos de Actions ilimitados). Ex.: `mente-saudavel`.
-2. Envie **todo o conteúdo desta pasta** para o repositório (inclusive a pasta oculta `.github`).
-   - Pelo site: *Add file → Upload files*, arraste as pastas `lib`, `.github` e os arquivos `pubspec.yaml`, `.gitignore`, `LEIA-ME.md`.
-   - Ou pelo terminal:
-     ```bash
-     git init && git add . && git commit -m "Mente Saudavel"
-     git branch -M main
-     git remote add origin https://github.com/SEU_USUARIO/mente-saudavel.git
-     git push -u origin main
-     ```
-3. Abra a aba **Actions**. O workflow **Gerar APK** começa sozinho (leva ~5 a 10 min). Se não começar:
-   *Actions → Gerar APK → Run workflow*.
-4. Quando ficar verde ✓, abra **Releases** (coluna da direita do repositório): lá está o `app-release.apk`.
-   - No **celular**, abra a página do repositório no navegador, entre em Releases e toque no APK para baixar.
-   - Ou baixe no PC, em *Actions → (execução) → Artifacts → MenteSaudavel-APK*, e passe para o celular.
-5. Abra o arquivo baixado e permita **"Instalar apps desconhecidos"** para o navegador/gerenciador de arquivos.
-   O Play Protect pode avisar que o app não é conhecido: é normal, o APK é assinado com a chave de debug.
+| Tipo | Como gerar | Contas/dados de demonstração |
+|---|---|---|
+| **Demonstração** | *Actions → Build APK → Run workflow* (`demo = true`; marque `release = true` para publicar) ou qualquer push em `dev`/`main` (fica como artefato) | Sim (login mostra as contas de teste) |
+| **Produção** | Criar uma tag: `git tag v1.0.0 && git push origin v1.0.0` | **Não** (sem contas, sem dados de exemplo) |
 
-> Se o build falhar, abra a execução em Actions, clique no passo vermelho e me envie o texto do erro.
+Onde baixar: aba **Releases** do repositório (builds publicados) ou, no run do workflow, o artefato `MenteSaudavel-APK`
+(contém o `.apk` e o `.sha256` para conferir a integridade).
+
+Instalação: baixe no celular, abra o arquivo e permita "Instalar apps desconhecidos". O Play Protect pode avisar
+quando o APK está com assinatura de **teste**; configure a assinatura de produção
+(`ci/api-validation/docs/DEPLOYMENT.md`, §3) para que o app possa ser **atualizado por cima** de versões anteriores.
+
+> Rodar localmente com dados de exemplo: `flutter run --dart-define=DEMO_MODE=true`.
 
 ## 2. Versão Web (site no GitHub Pages)
 

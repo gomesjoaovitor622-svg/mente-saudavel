@@ -1,38 +1,44 @@
 name: Publicar versão Web
 
-# Publica o app como site no GitHub Pages.
-# O repositório precisa ter o GitHub Pages habilitado com a origem "GitHub Actions".
+# Publica o app como site no GitHub Pages. Ative antes: Settings > Pages > Source: "GitHub Actions".
 on:
   push:
     branches: [main, master]
   workflow_dispatch:
 
-permissions:
-  contents: read
-  pages: write
-  id-token: write
-
 concurrency:
   group: pages
-  cancel-in-progress: true
+  cancel-in-progress: false      # nunca interrompe um deploy em andamento
+
+permissions: {}
+
+defaults:
+  run:
+    shell: bash
 
 jobs:
   build:
-    runs-on: ubuntu-latest
+    name: Compilar o site
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    permissions:
+      contents: read
+    env:
+      REPO_NAME: ${{ github.event.repository.name }}   # via env: nunca interpolar contexto dentro do script
     steps:
-      - name: Baixar o código
-        uses: actions/checkout@v4
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
 
-      - name: Instalar Flutter
-        uses: subosito/flutter-action@v2
+      - uses: subosito/flutter-action@1a449444c387b1966244ae4d4f8c696479add0b2 # v2.23.0
         with:
           channel: stable
           cache: true
 
-      - name: Gerar a pasta web (numa pasta temporária, sem tocar no seu código)
+      - name: Gerar a pasta web (em pasta temporária, sem tocar no código do app)
         run: |
-          flutter create --platforms=web --project-name mente_saudavel /tmp/gerado
-          cp -r /tmp/gerado/web ./web
+          flutter create --platforms=web --project-name mente_saudavel "$RUNNER_TEMP/gerado"
+          cp -r "$RUNNER_TEMP/gerado/web" ./web
 
       - name: Ativar o SQLite no navegador
         run: |
@@ -42,20 +48,23 @@ jobs:
           test -f web/sqlite3.wasm
 
       - name: Compilar o site
-        run: flutter build web --release --base-href "/${{ github.event.repository.name }}/"
+        run: flutter build web --release --dart-define=DEMO_MODE=true --base-href "/${REPO_NAME}/"
 
-      - name: Preparar o envio para o Pages
-        uses: actions/upload-pages-artifact@v3
+      - uses: actions/upload-pages-artifact@fc324d3547104276b827a68afc52ff2a11cc49c9 # v5.0.0
         with:
           path: build/web
 
   deploy:
+    name: Publicar no GitHub Pages
     needs: build
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    permissions:
+      pages: write                # publicar o site no GitHub Pages
+      id-token: write             # OIDC exigido pela action deploy-pages
     environment:
       name: github-pages
       url: ${{ steps.deployment.outputs.page_url }}
     steps:
-      - name: Publicar no GitHub Pages
-        id: deployment
-        uses: actions/deploy-pages@v4
+      - id: deployment
+        uses: actions/deploy-pages@368f82528645a54fb793d4d04e342629a3f51346 # v5.0.1
