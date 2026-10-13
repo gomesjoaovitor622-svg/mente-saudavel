@@ -98,7 +98,7 @@ jobs:
           ks="$RUNNER_TEMP/release.jks"
           trap 'rm -f "$ks"' EXIT
           printf '%s' "$KEYSTORE_B64" | base64 -d > "$ks"
-          apksigner="$(ls -d "${ANDROID_HOME:-$ANDROID_SDK_ROOT}"/build-tools/*/apksigner | sort -V | tail -1)"
+          apksigner="$(find "${ANDROID_HOME:-$ANDROID_SDK_ROOT}/build-tools" -name apksigner -type f | sort -V | tail -1)"
           "$apksigner" sign --ks "$ks" --ks-key-alias "$KEY_ALIAS" \
             --ks-pass env:KEYSTORE_PASSWORD --key-pass env:KEY_PASSWORD \
             --out "$RUNNER_TEMP/assinado.apk" "$apk"
