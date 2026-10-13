@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:mente_saudavel/models/usuario.dart';
 import 'package:mente_saudavel/screens/banco_screen.dart';
+import 'package:mente_saudavel/utils/build_flags.dart';
 import 'package:mente_saudavel/services/api_service.dart';
 import 'package:mente_saudavel/services/auth_service.dart';
 import 'package:mente_saudavel/utils/app_exception.dart';
@@ -236,15 +237,18 @@ class _PerfilTabState extends State<PerfilTab> {
               label: const Text('Alterar senha'),
             ),
             const SizedBox(height: 8),
-            OutlinedButton.icon(
-              onPressed: () => Navigator.push(
-                context,
-                MaterialPageRoute(builder: (_) => const BancoScreen()),
+            // O inspetor lê o SQLite LOCAL; com servidor ele não mostra os dados reais.
+            if (!usaServidor) ...[
+              OutlinedButton.icon(
+                onPressed: () => Navigator.push(
+                  context,
+                  MaterialPageRoute(builder: (_) => const BancoScreen()),
+                ),
+                icon: const Icon(Icons.storage_outlined),
+                label: const Text('Ver banco de dados (SQLite)'),
               ),
-              icon: const Icon(Icons.storage_outlined),
-              label: const Text('Ver banco de dados (SQLite)'),
-            ),
-            const SizedBox(height: 8),
+              const SizedBox(height: 8),
+            ],
             OutlinedButton.icon(
               onPressed: _sair,
               icon: const Icon(Icons.logout),

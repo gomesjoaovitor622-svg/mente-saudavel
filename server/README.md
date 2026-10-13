@@ -6,7 +6,7 @@ FastAPI + SQLAlchemy. Banco: PostgreSQL (produção) ou SQLite (testes).
 cd server
 python -m pip install --require-hashes -r requirements-dev.txt
 python -m pytest -q                                   # testes em SQLite
-TEST_DATABASE_URL=postgresql+psycopg://user:pw@localhost/ms python -m pytest -q   # em PostgreSQL
+TEST_DATABASE_URL="postgresql+psycopg://USUARIO:SENHA@localhost/ms" python -m pytest -q   # em PostgreSQL    # pragma: allowlist secret
 
 # rodar localmente (modo desenvolvimento: docs em /docs, segredo de teste)
 APP_ENV=development DEMO_SEED=true uvicorn app.main:create_app --factory --reload

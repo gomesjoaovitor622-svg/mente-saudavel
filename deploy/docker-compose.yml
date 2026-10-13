@@ -1,6 +1,6 @@
 # Sobe tudo: banco (PostgreSQL), API e site com HTTPS automático (Caddy).
 #   cp .env.example .env   # edite os valores
-#   docker compose up -d --build
+#   docker compose up -d --build     # compila o site e sobe tudo (1ª vez: ~5-10 min)
 services:
   db:
     image: postgres:16-alpine
@@ -37,10 +37,23 @@ services:
     security_opt: ["no-new-privileges:true"]
     networks: [interna]          # sem "ports": a API só é acessível pelo Caddy
 
+  # Compila o site Flutter e o publica no volume "webdata" (roda, copia e termina).
+  site:
+    build:
+      context: ..
+      dockerfile: deploy/site.Dockerfile
+    restart: "no"
+    volumes:
+      - webdata:/out
+
   caddy:
     image: caddy:2-alpine
     restart: unless-stopped
-    depends_on: [api]
+    depends_on:
+      api:
+        condition: service_started
+      site:
+        condition: service_completed_successfully
     ports:
       - "80:80"
       - "443:443"
@@ -48,7 +61,7 @@ services:
       DOMAIN: ${DOMAIN}
     volumes:
       - ./Caddyfile:/etc/caddy/Caddyfile:ro
-      - ./web:/srv/web:ro        # site compilado (veja README-DEPLOY.md)
+      - webdata:/srv/web:ro      # site compilado pelo serviço "site"
       - caddy_data:/data
       - caddy_config:/config
     networks: [interna]
@@ -57,6 +70,7 @@ networks:
   interna:
 
 volumes:
+  webdata:
   dbdata:
   caddy_data:
   caddy_config:

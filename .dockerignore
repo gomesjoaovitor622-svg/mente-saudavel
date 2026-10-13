@@ -1,0 +1,9 @@
+.git
+.github
+**/node_modules
+**/__pycache__
+build
+.dart_tool
+deploy/.env
+deploy/backups
+server/data

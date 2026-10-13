@@ -18,24 +18,19 @@ O site (Flutter web) e a API ficam no **mesmo domínio**: o site em `/`, a API e
    cp .env.example .env
    nano .env        # DOMAIN, POSTGRES_PASSWORD e JWT_SECRET (openssl rand -hex 32)
    ```
-3. **Pegue o site compilado.** No GitHub: *Actions → "Site para servidor" → último run verde → Artifacts → `site-web`*.
-   Baixe, descompacte e coloque o conteúdo em `deploy/web/` (o `index.html` deve ficar em `deploy/web/index.html`):
-   ```bash
-   mkdir -p web && tar -xzf site-web.tar.gz -C web
-   ```
-4. **Suba tudo:**
+3. **Suba tudo** (o próprio Docker compila o site Flutter; a 1ª vez leva ~5–10 min):
    ```bash
    docker compose up -d --build
    docker compose ps          # db, api e caddy devem estar "running/healthy"
    ```
-5. **Teste:** abra `https://SEU_DOMINIO` (o certificado HTTPS é emitido sozinho) e `https://SEU_DOMINIO/api/health` → `{"status":"ok"}`.
+4. **Teste:** abra `https://SEU_DOMINIO` (o certificado HTTPS é emitido sozinho) e `https://SEU_DOMINIO/api/health` → `{"status":"ok"}`.
 
 ## Rotina
 | Tarefa | Comando |
 |---|---|
 | Ver logs | `docker compose logs -f api` |
 | Atualizar a API | `git pull && docker compose up -d --build api` |
-| Atualizar o site | baixar novo `site-web` e substituir `deploy/web/` (não precisa reiniciar) |
+| Atualizar o site | `git pull && docker compose up -d --build site caddy` (recompila e republica) |
 | **Backup** | `./backup.sh` (agende no cron: `0 3 * * * cd /opt/mente-saudavel/deploy && ./backup.sh`) |
 | Restaurar | `gunzip -c backups/ARQUIVO.sql.gz \| docker compose exec -T db psql -U mente -d mente_saudavel` |
 
@@ -54,7 +49,7 @@ O site (Flutter web) e a API ficam no **mesmo domínio**: o site em `/`, a API e
 | `PASSWORD_MIN` | Tamanho mínimo da senha (padrão 8). |
 
 ## Problemas comuns
-- **Site abre mas login falha / "Sem conexão com o servidor"**: o site foi compilado sem `API_URL=/api`? Use o artefato do workflow "Site para servidor". Teste `/api/health`.
+- **Site abre mas login falha / "Sem conexão com o servidor"**: o site é compilado com `API_URL=/api` pelo serviço `site` (`docker compose logs site`). Teste `/api/health`.
 - **HTTPS não emite**: o domínio já aponta para o IP? Portas 80/443 liberadas no firewall do provedor? `docker compose logs caddy`.
 - **API reinicia sem parar**: `docker compose logs api` — geralmente `JWT_SECRET` ausente/fraco.
 - **Horário errado nas sessões**: ajuste `TZ` no `.env` e rode `docker compose up -d api`.
