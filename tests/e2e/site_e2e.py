@@ -119,6 +119,12 @@ def main() -> int:
             ctx = browser.new_context(ignore_https_errors=True, viewport={"width": 1100, "height": 800}, locale="pt-BR")
             page = ctx.new_page()
             erros_console: list[str] = []
+            page.on(
+                "request",
+                lambda r, e=erros_console: e.append(f"REQ {r.method} {r.url.split('/api')[-1]} {r.post_data_json.get('email') if r.post_data and r.url.endswith('/auth/entrar') else ''}")
+                if "/auth/entrar" in r.url
+                else None,
+            )
             page.on("console", lambda m, e=erros_console: e.append(m.text) if m.type == "error" else None)
             print(f"== fluxo: {nome}", flush=True)
             try:
@@ -126,7 +132,7 @@ def main() -> int:
             except (PWTimeout, AssertionError) as exc:
                 page.screenshot(path=str(SHOTS / f"falha-{nome}.png"))
                 arvore = page.evaluate("document.querySelector('flt-semantics-host')?.innerText || '(sem árvore de acessibilidade)'")
-                print(f"::error title=E2E falhou no fluxo {nome}::{str(exc).splitlines()[0][:300]} | etapas ok: {len(etapas)} | tela: {str(arvore)[:600]!r} | console: {erros_console[:3]!r}")
+                print(f"::error title=E2E falhou no fluxo {nome}::{str(exc).splitlines()[0][:300]} | etapas ok: {len(etapas)} | tela: {str(arvore)[:600]!r} | console: {erros_console[:6]!r}")
                 browser.close()
                 return 1
             finally:
