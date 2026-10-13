@@ -37,7 +37,10 @@ def tocar(page: Page, rotulo: str) -> None:
 def digitar(page: Page, rotulo: str, valor: str) -> None:
     campo = page.get_by_label(rotulo).first
     campo.click(timeout=TIMEOUT)
-    campo.fill(valor)
+    # Digita como uma pessoa (o Flutter só atualiza o campo com eventos de teclado reais).
+    page.keyboard.press("Control+A")
+    page.keyboard.press("Delete")
+    page.keyboard.type(valor, delay=20)
 
 
 def ok(nome: str) -> None:
