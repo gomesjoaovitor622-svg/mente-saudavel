@@ -66,6 +66,27 @@ jobs:
           # cabeçalhos de segurança do Caddy
           curl -ksSI "$base/" | grep -qi '^strict-transport-security'
 
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: '3.12'
+
+      - name: Instalar o Playwright (navegador de teste)
+        run: |
+          python -m pip install --disable-pip-version-check playwright==1.55.0
+          python -m playwright install --with-deps chromium
+
+      - name: Testar o site no navegador (clica nas telas de verdade)
+        run: python tests/e2e/site_e2e.py https://localhost "$RUNNER_TEMP/e2e-shots"
+
+      - name: Guardar capturas de tela da falha
+        if: ${{ failure() }}
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: e2e-capturas
+          path: ${{ runner.temp }}/e2e-shots
+          if-no-files-found: ignore
+          retention-days: 7
+
       - name: Logs em caso de falha
         if: ${{ failure() }}
         working-directory: deploy
