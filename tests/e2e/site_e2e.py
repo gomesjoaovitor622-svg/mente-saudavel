@@ -93,6 +93,9 @@ def fluxo_paciente(page: Page) -> None:
     ok("inspetor do SQLite local não aparece no modo servidor")
 
     tocar(page, "Sair")
+    ver(page, "Deseja sair da sua conta")
+    # O diálogo de confirmação tem outro botão "Sair" (é o último da tela).
+    page.get_by_role("button", name="Sair").last.click(timeout=TIMEOUT)
     ver(page, "Criar uma conta")
     ok("sair volta para o login")
 
