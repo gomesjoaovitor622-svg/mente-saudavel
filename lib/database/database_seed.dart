@@ -33,7 +33,7 @@ class DatabaseSeed {
     });
   }
 
-  static Future<void> _criarSessao(
+  static Future<int> _criarSessao(
     DatabaseExecutor db, {
     required int pacienteId,
     required int profissionalId,
@@ -96,7 +96,7 @@ class DatabaseSeed {
     final mes = agora.month;
     final dia = agora.day;
 
-    await _criarSessao(
+    final primeira = await _criarSessao(
       db,
       pacienteId: carlos,
       profissionalId: helena,
@@ -130,5 +130,15 @@ class DatabaseSeed {
       modalidade: Modalidade.presencial,
       status: StatusSessao.agendada,
     );
+
+    // Avaliação de exemplo (a 2ª sessão fica sem avaliação, para testar o botão).
+    await db.insert('avaliacoes', {
+      'sessao_id': primeira,
+      'paciente_id': carlos,
+      'profissional_id': helena,
+      'nota': 5,
+      'comentario': 'Atendimento acolhedor e muito claro.',
+      'criado_em': DateTime(hoje, mes, dia - 9, 12).toIso8601String(),
+    });
   }
 }

@@ -4,6 +4,7 @@ import 'package:mente_saudavel/models/humor.dart';
 import 'package:mente_saudavel/services/auth_service.dart';
 import 'package:mente_saudavel/utils/formatters.dart';
 import 'package:mente_saudavel/widgets/componentes.dart';
+import 'package:mente_saudavel/widgets/grafico_humor.dart';
 
 /// Diário de humor: o paciente registra como se sente (1 a 5) e uma nota.
 class HumorTab extends StatefulWidget {
@@ -194,6 +195,7 @@ class _HumorTabState extends State<HumorTab> {
                 ),
                 const SizedBox(height: 16),
                 _resumoSemana(),
+                GraficoHumor(registros: _registros),
                 const SizedBox(height: 8),
                 const Text('Histórico', style: TextStyle(fontSize: 16, fontWeight: FontWeight.w600)),
                 const SizedBox(height: 4),

@@ -11,7 +11,7 @@ class DatabaseHelper {
   static final DatabaseHelper instance = DatabaseHelper._internal();
 
   static const String _nomeBanco = 'mente_saudavel.db';
-  static const int _versaoBanco = 1;
+  static const int _versaoBanco = 2;
 
   Future<Database>? _dbFuture;
 
@@ -35,6 +35,10 @@ class DatabaseHelper {
           if (kDemoMode) {
             await DatabaseSeed.executar(db);
           }
+        },
+        // v1 -> v2: só acrescenta a tabela de avaliações (nenhum dado é perdido).
+        onUpgrade: (db, antiga, nova) async {
+          await DatabaseSchema.executar(db);
         },
         // Toda abertura: garante que as tabelas existem (auto-correção).
         onOpen: (db) async {

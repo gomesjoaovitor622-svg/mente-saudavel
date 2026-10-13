@@ -2,9 +2,10 @@ import 'package:flutter/material.dart';
 import 'package:mente_saudavel/screens/paciente/humor_tab.dart';
 import 'package:mente_saudavel/screens/paciente/minhas_sessoes_tab.dart';
 import 'package:mente_saudavel/screens/paciente/paciente_inicio_tab.dart';
+import 'package:mente_saudavel/screens/paciente/profissionais_tab.dart';
 import 'package:mente_saudavel/screens/perfil_tab.dart';
 
-/// Estrutura do paciente: barra de navegação com 4 abas.
+/// Estrutura do paciente: barra de navegação com 5 abas.
 class PacienteHomeScreen extends StatefulWidget {
   const PacienteHomeScreen({super.key});
 
@@ -21,10 +22,12 @@ class _PacienteHomeScreenState extends State<PacienteHomeScreen> {
   Widget _aba() {
     switch (_indice) {
       case 0:
-        return PacienteInicioTab(onVerSessoes: () => _irPara(1));
+        return PacienteInicioTab(onVerSessoes: () => _irPara(2));
       case 1:
-        return const MinhasSessoesTab();
+        return const ProfissionaisTab();
       case 2:
+        return const MinhasSessoesTab();
+      case 3:
         return const HumorTab();
       default:
         return const PerfilTab();
@@ -43,6 +46,11 @@ class _PacienteHomeScreenState extends State<PacienteHomeScreen> {
             icon: Icon(Icons.home_outlined),
             selectedIcon: Icon(Icons.home),
             label: 'Início',
+          ),
+          NavigationDestination(
+            icon: Icon(Icons.search),
+            selectedIcon: Icon(Icons.manage_search),
+            label: 'Buscar',
           ),
           NavigationDestination(
             icon: Icon(Icons.event_note_outlined),

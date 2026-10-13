@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:mente_saudavel/database/avaliacao_dao.dart';
 import 'package:mente_saudavel/database/sessao_dao.dart';
 import 'package:mente_saudavel/models/sessao.dart';
 import 'package:mente_saudavel/models/usuario.dart';
@@ -18,9 +19,12 @@ class PainelTab extends StatefulWidget {
 
 class _PainelTabState extends State<PainelTab> {
   final SessaoDao _dao = SessaoDao();
+  final AvaliacaoDao _avaliacaoDao = AvaliacaoDao();
 
   int _atendimentosHoje = 0;
   int _pacientesAtivos = 0;
+  double? _notaMedia;
+  int _totalAvaliacoes = 0;
   List<Sessao> _agendaHoje = [];
   bool _carregando = true;
   String? _erro;
@@ -38,11 +42,16 @@ class _PainelTabState extends State<PainelTab> {
       final id = _usuario.id!;
       final atendimentos = await _dao.atendimentosHoje(id);
       final pacientes = await _dao.pacientesAtivos(id);
+      final avaliacoes = await _avaliacaoDao.doProfissional(id, limite: 1000);
       final agenda = await _dao.doProfissionalNoDia(id, DateTime.now(), incluirCanceladas: false);
       if (!mounted) return;
       setState(() {
         _atendimentosHoje = atendimentos;
         _pacientesAtivos = pacientes;
+        _totalAvaliacoes = avaliacoes.length;
+        _notaMedia = avaliacoes.isEmpty
+            ? null
+            : avaliacoes.fold<int>(0, (soma, a) => soma + a.nota) / avaliacoes.length;
         _agendaHoje = agenda;
         _carregando = false;
         _erro = null;
@@ -90,6 +99,13 @@ class _PainelTabState extends State<PainelTab> {
                     const SizedBox(width: 12),
                     Expanded(child: StatCard(valor: '$_pacientesAtivos', rotulo: 'pacientes ativos')),
                   ],
+                ),
+                const SizedBox(height: 12),
+                StatCard(
+                  valor: _notaMedia == null ? '—' : _notaMedia!.toStringAsFixed(1),
+                  rotulo: _totalAvaliacoes == 0
+                      ? 'avaliação média (sem avaliações ainda)'
+                      : 'avaliação média ($_totalAvaliacoes avaliações)',
                 ),
                 const SizedBox(height: 20),
                 Row(

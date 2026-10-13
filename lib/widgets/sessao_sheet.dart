@@ -1,8 +1,11 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:mente_saudavel/database/sessao_dao.dart';
 import 'package:mente_saudavel/models/sessao.dart';
 import 'package:mente_saudavel/utils/app_exception.dart';
+import 'package:mente_saudavel/services/seguranca.dart';
 import 'package:mente_saudavel/utils/formatters.dart';
+import 'package:mente_saudavel/widgets/avaliacao_widgets.dart';
 import 'package:mente_saudavel/widgets/componentes.dart';
 
 /// Abre os detalhes da sessão. Retorna true se algo foi alterado.
@@ -155,6 +158,42 @@ class _SessaoSheetState extends State<_SessaoSheet> {
     );
   }
 
+  /// Sala de vídeo (Jitsi Meet) da sessão. O nome da sala é derivado de um hash,
+  /// para não ser uma sequência óbvia (ainda assim, quem tem o link entra).
+  String get _linkVideo {
+    final sala = Seguranca.hashSenha('sessao-${_sessao.id}', 'mente-saudavel').substring(0, 16);
+    return 'https://meet.jit.si/MenteSaudavel-$sala';
+  }
+
+  String get _linkMapa =>
+      'https://www.google.com/maps/search/?api=1&query=${Uri.encodeQueryComponent(_sessao.profissionalEndereco ?? '')}';
+
+  Future<void> _copiar(String texto, String aviso) async {
+    await Clipboard.setData(ClipboardData(text: texto));
+    if (!mounted) return;
+    mostrarMensagem(context, aviso);
+  }
+
+  Future<void> _avaliar() async {
+    final salvou = await mostrarAvaliarDialog(context, _sessao);
+    if (!mounted) return;
+    if (salvou) {
+      mostrarMensagem(context, 'Avaliação enviada. Obrigado!');
+      Navigator.pop(context, true);
+    }
+  }
+
+  Widget _botaoLink(IconData icone, String rotulo, String link, String aviso) {
+    return Padding(
+      padding: const EdgeInsets.only(top: 4),
+      child: OutlinedButton.icon(
+        onPressed: () => _copiar(link, aviso),
+        icon: Icon(icone),
+        label: Text(rotulo),
+      ),
+    );
+  }
+
   Widget _linha(IconData icone, String texto) {
     return Padding(
       padding: const EdgeInsets.symmetric(vertical: 4),
@@ -211,6 +250,15 @@ class _SessaoSheetState extends State<_SessaoSheet> {
                 endereco != null &&
                 endereco.isNotEmpty)
               _linha(Icons.map_outlined, endereco),
+            if (s.agendada && s.modalidade == Modalidade.online)
+              _botaoLink(Icons.videocam, 'Copiar link da videochamada', _linkVideo,
+                  'Link copiado. Cole no navegador na hora da sessão.'),
+            if (!profissional &&
+                s.agendada &&
+                s.modalidade == Modalidade.presencial &&
+                endereco != null &&
+                endereco.isNotEmpty)
+              _botaoLink(Icons.map, 'Copiar link do mapa', _linkMapa, 'Link do mapa copiado.'),
             const SizedBox(height: 12),
             if (profissional) ...[
               TextField(
@@ -251,12 +299,21 @@ class _SessaoSheetState extends State<_SessaoSheet> {
                   icon: const Icon(Icons.cancel_outlined),
                   label: const Text('Cancelar sessão'),
                 ),
-              ] else
+              ] else ...[
+                if (s.status == StatusSessao.concluida) ...[
+                  FilledButton.icon(
+                    onPressed: _ocupado ? null : _avaliar,
+                    icon: const Icon(Icons.star_outline),
+                    label: const Text('Avaliar atendimento'),
+                  ),
+                  const SizedBox(height: 8),
+                ],
                 OutlinedButton.icon(
                   onPressed: _ocupado ? null : _excluir,
                   icon: const Icon(Icons.delete_outline),
                   label: const Text('Excluir do histórico'),
                 ),
+              ],
             ],
           ],
         ),
