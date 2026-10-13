@@ -2,6 +2,8 @@ import 'package:sqflite/sqflite.dart';
 import 'package:mente_saudavel/database/database_helper.dart';
 import 'package:mente_saudavel/models/sessao.dart';
 import 'package:mente_saudavel/utils/formatters.dart';
+import 'package:mente_saudavel/services/api_client.dart';
+import 'package:mente_saudavel/utils/build_flags.dart';
 
 /// Acesso à tabela "sessoes" (agendamentos entre paciente e profissional).
 class SessaoDao {
@@ -22,12 +24,26 @@ class SessaoDao {
 
   // ---------- CREATE ----------
   Future<int> inserir(Sessao sessao) async {
+    if (usaServidor) {
+      final r = await ApiClient.post('/sessoes', corpo: {
+        'profissional_id': sessao.profissionalId,
+        'data_hora': sessao.dataHora.toIso8601String(),
+        'modalidade': sessao.modalidade,
+      }) as Map<String, dynamic>;
+      return r['id'] as int;
+    }
     final db = await _db;
     return db.insert('sessoes', sessao.toMap());
   }
 
   // ---------- READ: paciente ----------
+  Future<List<Sessao>> _remotoLista(Map<String, String> consulta) async {
+    final r = await ApiClient.get('/sessoes', consulta: consulta);
+    return ApiClient.comoLista(r).map(Sessao.fromMap).toList();
+  }
+
   Future<List<Sessao>> doPaciente(int pacienteId, {String? status}) async {
+    if (usaServidor) return _remotoLista({if (status != null) 'status': status});
     final db = await _db;
     final linhas = status == null
         ? await db.rawQuery(
@@ -42,6 +58,13 @@ class SessaoDao {
   }
 
   Future<Sessao?> proximaDoPaciente(int pacienteId) async {
+    if (usaServidor) {
+      final lista = await _remotoLista({
+        'status': StatusSessao.agendada,
+        'de': DateTime.now().toIso8601String(),
+      });
+      return lista.isEmpty ? null : lista.first; // o servidor ordena do mais próximo
+    }
     final db = await _db;
     final linhas = await db.rawQuery(
       '''$_select
@@ -54,6 +77,7 @@ class SessaoDao {
   }
 
   Future<int> concluidasDoPaciente(int pacienteId) async {
+    if (usaServidor) return (await _remotoLista({'status': StatusSessao.concluida})).length;
     final db = await _db;
     final r = await db.rawQuery(
       "SELECT COUNT(*) FROM sessoes WHERE paciente_id = ? AND status = 'concluida'",
@@ -68,6 +92,15 @@ class SessaoDao {
     DateTime dia, {
     bool incluirCanceladas = true,
   }) async {
+    if (usaServidor) {
+      final inicio = somenteData(dia);
+      final fim = DateTime(dia.year, dia.month, dia.day + 1);
+      return _remotoLista({
+        'de': inicio.toIso8601String(),
+        'ate': fim.toIso8601String(),
+        if (!incluirCanceladas) 'nao_canceladas': 'true',
+      });
+    }
     final db = await _db;
     final inicio = somenteData(dia);
     final fim = DateTime(dia.year, dia.month, dia.day + 1);
@@ -82,6 +115,9 @@ class SessaoDao {
   }
 
   Future<int> atendimentosHoje(int profissionalId) async {
+    if (usaServidor) {
+      return (await doProfissionalNoDia(profissionalId, DateTime.now(), incluirCanceladas: false)).length;
+    }
     final db = await _db;
     final hoje = somenteData(DateTime.now());
     final amanha = DateTime(hoje.year, hoje.month, hoje.day + 1);
@@ -95,6 +131,7 @@ class SessaoDao {
   }
 
   Future<int> pacientesAtivos(int profissionalId) async {
+    if (usaServidor) return (await pacientesDoProfissional(profissionalId)).length;
     final db = await _db;
     final r = await db.rawQuery(
       '''SELECT COUNT(DISTINCT paciente_id) FROM sessoes
@@ -106,6 +143,10 @@ class SessaoDao {
   }
 
   Future<List<PacienteResumo>> pacientesDoProfissional(int profissionalId) async {
+    if (usaServidor) {
+      final r = await ApiClient.get('/profissional/pacientes');
+      return ApiClient.comoLista(r).map(PacienteResumo.fromMap).toList();
+    }
     final db = await _db;
     final linhas = await db.rawQuery(
       '''SELECT u.id, u.nome, u.email,
@@ -124,6 +165,7 @@ class SessaoDao {
   }
 
   Future<List<Sessao>> doProfissionalComPaciente(int profissionalId, int pacienteId) async {
+    if (usaServidor) return _remotoLista({'paciente_id': '$pacienteId'});
     final db = await _db;
     final linhas = await db.rawQuery(
       '''$_select
@@ -137,6 +179,11 @@ class SessaoDao {
   // ---------- Disponibilidade ----------
   /// Horas (0-23) já ocupadas pelo profissional em um dia.
   Future<Set<int>> horasOcupadas(int profissionalId, DateTime dia) async {
+    if (usaServidor) {
+      final r = await ApiClient.get('/profissionais/$profissionalId/horas-ocupadas',
+          consulta: {'dia': somenteData(dia).toIso8601String()});
+      return (r as List<dynamic>).map((e) => e as int).toSet();
+    }
     final db = await _db;
     final inicio = somenteData(dia);
     final fim = DateTime(dia.year, dia.month, dia.day + 1);
@@ -156,6 +203,14 @@ class SessaoDao {
     required DateTime dataHora,
     int? ignorarId,
   }) async {
+    if (usaServidor) {
+      final r = await ApiClient.get('/sessoes/conflito', consulta: {
+        'profissional_id': '$profissionalId',
+        'data_hora': dataHora.toIso8601String(),
+        'ignorar_id': '${ignorarId ?? -1}',
+      }) as Map<String, dynamic>;
+      return r['mensagem'] as String?;
+    }
     final db = await _db;
     final quando = dataHora.toIso8601String();
     final ignorar = ignorarId ?? -1;
@@ -181,16 +236,28 @@ class SessaoDao {
 
   // ---------- UPDATE ----------
   Future<int> atualizarStatus(int id, String status) async {
+    if (usaServidor) {
+      await ApiClient.patch('/sessoes/$id', corpo: {'status': status});
+      return 1;
+    }
     final db = await _db;
     return db.update('sessoes', {'status': status}, where: 'id = ?', whereArgs: [id]);
   }
 
   Future<int> atualizarAnotacoes(int id, String anotacoes) async {
+    if (usaServidor) {
+      await ApiClient.patch('/sessoes/$id', corpo: {'anotacoes': anotacoes});
+      return 1;
+    }
     final db = await _db;
     return db.update('sessoes', {'anotacoes': anotacoes}, where: 'id = ?', whereArgs: [id]);
   }
 
   Future<int> remarcar(int id, DateTime novaDataHora) async {
+    if (usaServidor) {
+      await ApiClient.patch('/sessoes/$id', corpo: {'data_hora': novaDataHora.toIso8601String()});
+      return 1;
+    }
     final db = await _db;
     return db.update(
       'sessoes',
@@ -202,6 +269,10 @@ class SessaoDao {
 
   // ---------- DELETE ----------
   Future<int> excluir(int id) async {
+    if (usaServidor) {
+      await ApiClient.delete('/sessoes/$id');
+      return 1;
+    }
     final db = await _db;
     return db.delete('sessoes', where: 'id = ?', whereArgs: [id]);
   }

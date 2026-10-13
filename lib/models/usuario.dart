@@ -49,14 +49,14 @@ class Usuario {
     return Usuario(
       id: map['id'] as int?,
       nome: map['nome'] as String,
-      email: map['email'] as String,
-      senhaHash: map['senha_hash'] as String,
-      salt: map['salt'] as String,
+      email: (map['email'] as String?) ?? '',
+      senhaHash: (map['senha_hash'] as String?) ?? '',
+      salt: (map['salt'] as String?) ?? '',
       perfil: map['perfil'] as String,
       registro: map['registro'] as String?,
       especialidade: map['especialidade'] as String?,
       endereco: map['endereco'] as String?,
-      criadoEm: map['criado_em'] as String,
+      criadoEm: (map['criado_em'] as String?) ?? '',
     );
   }
 

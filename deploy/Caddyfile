@@ -1,0 +1,25 @@
+# HTTPS automático (Let's Encrypt) para o domínio definido em DOMAIN.
+{$DOMAIN} {
+	encode zstd gzip
+
+	header {
+		Strict-Transport-Security "max-age=31536000; includeSubDomains"
+		X-Content-Type-Options "nosniff"
+		X-Frame-Options "DENY"
+		Referrer-Policy "no-referrer"
+		Permissions-Policy "camera=(), microphone=(), geolocation=()"
+		-Server
+	}
+
+	# /api/* vai para a API (o prefixo /api é removido).
+	handle_path /api/* {
+		reverse_proxy api:8000
+	}
+
+	# Todo o resto é o site Flutter (SPA: rotas desconhecidas voltam ao index.html).
+	handle {
+		root * /srv/web
+		try_files {path} /index.html
+		file_server
+	}
+}

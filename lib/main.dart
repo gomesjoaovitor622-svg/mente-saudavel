@@ -84,7 +84,7 @@ class _AuthGateState extends State<AuthGate> {
                   children: [
                     const Icon(Icons.error_outline, size: 56, color: Colors.red),
                     const SizedBox(height: 12),
-                    const Text('Não foi possível abrir o banco de dados.'),
+                    const Text('Não foi possível iniciar o app. Verifique a conexão.'),
                     const SizedBox(height: 12),
                     FilledButton(
                       onPressed: _tentarNovamente,

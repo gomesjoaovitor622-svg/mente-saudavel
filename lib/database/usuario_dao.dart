@@ -1,6 +1,8 @@
 import 'package:sqflite/sqflite.dart';
 import 'package:mente_saudavel/database/database_helper.dart';
 import 'package:mente_saudavel/models/usuario.dart';
+import 'package:mente_saudavel/services/api_client.dart';
+import 'package:mente_saudavel/utils/build_flags.dart';
 
 /// Acesso à tabela "usuarios" (e à tabela "app_sessao", do login salvo).
 class UsuarioDao {
@@ -33,6 +35,12 @@ class UsuarioDao {
   }
 
   Future<List<Usuario>> listarProfissionais() async {
+    if (usaServidor) {
+      final r = await ApiClient.get('/profissionais');
+      return ApiClient.comoLista(r)
+          .map((m) => Usuario.fromMap({...m, 'perfil': 'profissional'}))
+          .toList();
+    }
     final db = await _db;
     final linhas = await db.query(
       'usuarios',

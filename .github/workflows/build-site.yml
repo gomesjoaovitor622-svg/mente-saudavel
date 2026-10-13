@@ -1,0 +1,54 @@
+name: Site para servidor
+
+# Compila o site Flutter para rodar atrás do servidor (API em /api, mesmo domínio).
+# Resultado: artefato "site-web" -> copie para deploy/web/ no servidor (veja deploy/README-DEPLOY.md).
+on:
+  push:
+    branches: [main, master, dev]
+    paths: ['lib/**', 'pubspec.yaml', '.github/workflows/build-site.yml']
+  workflow_dispatch:
+
+concurrency:
+  group: site-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions: {}
+
+defaults:
+  run:
+    shell: bash
+
+jobs:
+  site:
+    name: Compilar o site (modo servidor)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - uses: subosito/flutter-action@1a449444c387b1966244ae4d4f8c696479add0b2 # v2.23.0
+        with:
+          channel: stable
+          cache: true
+
+      - name: Gerar a pasta web (em pasta temporária)
+        run: |
+          flutter create --platforms=web --project-name mente_saudavel "$RUNNER_TEMP/gerado"
+          cp -r "$RUNNER_TEMP/gerado/web" ./web
+
+      - name: Compilar (sem SQLite no navegador, dados no servidor)
+        run: flutter build web --release --dart-define=API_URL=/api
+
+      - name: Empacotar
+        run: tar -czf "$RUNNER_TEMP/site-web.tar.gz" -C build/web .
+
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: site-web
+          path: ${{ runner.temp }}/site-web.tar.gz
+          if-no-files-found: error
+          retention-days: 30

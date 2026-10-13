@@ -1,6 +1,8 @@
 import 'package:sqflite/sqflite.dart';
 import 'package:mente_saudavel/database/database_helper.dart';
 import 'package:mente_saudavel/models/avaliacao.dart';
+import 'package:mente_saudavel/services/api_client.dart';
+import 'package:mente_saudavel/utils/build_flags.dart';
 
 /// Acesso à tabela "avaliacoes" e à busca de profissionais com nota média.
 class AvaliacaoDao {
@@ -8,11 +10,21 @@ class AvaliacaoDao {
 
   /// Cria ou atualiza a avaliação da sessão (cada sessão tem no máximo uma).
   Future<void> salvar(Avaliacao a) async {
+    if (usaServidor) {
+      await ApiClient.put('/sessoes/${a.sessaoId}/avaliacao',
+          corpo: {'nota': a.nota, 'comentario': a.comentario});
+      return;
+    }
     final db = await _db;
     await db.insert('avaliacoes', a.toMap(), conflictAlgorithm: ConflictAlgorithm.replace);
   }
 
   Future<Avaliacao?> daSessao(int sessaoId) async {
+    if (usaServidor) {
+      final r = await ApiClient.get('/sessoes/$sessaoId/avaliacao');
+      if (r == null) return null;
+      return Avaliacao.fromMap(Map<String, Object?>.from(r as Map));
+    }
     final db = await _db;
     final linhas =
         await db.query('avaliacoes', where: 'sessao_id = ?', whereArgs: [sessaoId], limit: 1);
@@ -21,6 +33,11 @@ class AvaliacaoDao {
   }
 
   Future<List<Avaliacao>> doProfissional(int profissionalId, {int limite = 30}) async {
+    if (usaServidor) {
+      final r = await ApiClient.get('/profissionais/$profissionalId/avaliacoes',
+          consulta: {'limite': '$limite'});
+      return ApiClient.comoLista(r).map(Avaliacao.fromMap).toList();
+    }
     final db = await _db;
     final linhas = await db.rawQuery(
       '''SELECT a.*, u.nome AS paciente_nome
@@ -35,6 +52,10 @@ class AvaliacaoDao {
   /// Lista profissionais, filtrando por nome/especialidade, com média das notas.
   /// Os melhores avaliados aparecem primeiro.
   Future<List<ProfissionalResumo>> buscarProfissionais({String termo = ''}) async {
+    if (usaServidor) {
+      final r = await ApiClient.get('/profissionais', consulta: {'q': termo.trim()});
+      return ApiClient.comoLista(r).map(ProfissionalResumo.fromMap).toList();
+    }
     final db = await _db;
     final t = '%${termo.trim()}%';
     final linhas = await db.rawQuery(

@@ -1,3 +1,8 @@
+import 'package:mente_saudavel/utils/build_flags.dart';
+
+/// O servidor exige 8+ caracteres; no modo local bastam 6.
+const int tamanhoMinimoSenha = usaServidor ? 8 : 6;
+
 String? validarNome(String? valor) {
   final texto = valor?.trim() ?? '';
   if (texto.isEmpty) return 'Informe seu nome.';
@@ -16,6 +21,8 @@ String? validarEmail(String? valor) {
 String? validarSenha(String? valor) {
   final texto = valor ?? '';
   if (texto.isEmpty) return 'Informe a senha.';
-  if (texto.length < 6) return 'A senha deve ter pelo menos 6 caracteres.';
+  if (texto.length < tamanhoMinimoSenha) {
+    return 'A senha deve ter pelo menos $tamanhoMinimoSenha caracteres.';
+  }
   return null;
 }

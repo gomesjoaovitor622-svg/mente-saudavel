@@ -1,0 +1,96 @@
+name: Servidor (API)
+
+# Qualidade e testes da API em SQLite E em PostgreSQL de verdade; confere a imagem Docker.
+on:
+  push:
+    branches: [main, master, dev]
+    paths: ['server/**', 'deploy/**', '.github/workflows/server-ci.yml']
+  pull_request:
+    branches: [main, master]
+    paths: ['server/**', 'deploy/**', '.github/workflows/server-ci.yml']
+  workflow_dispatch:
+
+concurrency:
+  group: server-${{ github.head_ref || github.ref }}
+  cancel-in-progress: true
+
+permissions: {}
+
+defaults:
+  run:
+    shell: bash
+    working-directory: server
+
+jobs:
+  testes:
+    name: Testes (SQLite + PostgreSQL)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Iniciar o PostgreSQL já instalado no runner (sem imagem de terceiros)
+        run: |
+          sudo systemctl start postgresql.service
+          sudo -u postgres psql -v ON_ERROR_STOP=1 -c "ALTER USER postgres PASSWORD 'teste'" -c "CREATE DATABASE ms"  # pragma: allowlist secret
+
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: '3.12'
+
+      - name: Instalar dependências (com verificação de hash)
+        run: python -m pip install --require-hashes -r requirements-dev.txt
+
+      - name: Lint e tipos
+        run: |
+          ruff check app tests
+          ruff format --check app tests
+          mypy app --ignore-missing-imports
+
+      - name: Testes em SQLite
+        run: python -m pytest -q
+
+      - name: Testes em PostgreSQL
+        env:
+          TEST_DATABASE_URL: postgresql+psycopg://postgres:teste@localhost:5432/ms # pragma: allowlist secret
+        run: python -m pytest -q
+
+      - name: Vulnerabilidades conhecidas nas dependências
+        run: pip-audit --require-hashes -r requirements.txt
+
+  imagem:
+    name: Imagem Docker
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    permissions:
+      contents: read
+    defaults:
+      run:
+        working-directory: .
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Construir a imagem
+        run: docker build -t mente-saudavel-api:ci server
+
+      - name: Subir e testar /health (modo produção)
+        run: |
+          secret="$(openssl rand -hex 32)"
+          docker run -d --name api -p 8000:8000 \
+            -e APP_ENV=production -e JWT_SECRET="$secret" \
+            -e DATABASE_URL=sqlite:////tmp/ci.db -e DEMO_SEED=true \
+            --read-only --tmpfs /tmp mente-saudavel-api:ci
+          for _ in $(seq 1 30); do
+            curl -fsS http://127.0.0.1:8000/health && ok=1 && break
+            sleep 2
+          done
+          [[ "${ok:-0}" == 1 ]] || { docker logs api; exit 1; }
+          curl -fsS -X POST http://127.0.0.1:8000/auth/entrar \
+            -H 'content-type: application/json' \
+            -d '{"email":"carlos@email.com","senha":"123456"}' | grep -q token
