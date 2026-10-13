@@ -42,6 +42,19 @@ class DatabaseSchema {
     )
   ''';
 
+  // v2: nota (1 a 5) e comentário que o paciente dá a uma sessão concluída.
+  static const String _avaliacoes = '''
+    CREATE TABLE IF NOT EXISTS avaliacoes (
+      id               INTEGER PRIMARY KEY AUTOINCREMENT,
+      sessao_id        INTEGER NOT NULL UNIQUE REFERENCES sessoes(id) ON DELETE CASCADE,
+      paciente_id      INTEGER NOT NULL REFERENCES usuarios(id) ON DELETE CASCADE,
+      profissional_id  INTEGER NOT NULL REFERENCES usuarios(id) ON DELETE CASCADE,
+      nota             INTEGER NOT NULL CHECK (nota BETWEEN 1 AND 5),
+      comentario       TEXT,
+      criado_em        TEXT NOT NULL
+    )
+  ''';
+
   // Guarda quem está logado, para o app abrir direto na tela certa.
   static const String _appSessao = '''
     CREATE TABLE IF NOT EXISTS app_sessao (
@@ -57,14 +70,19 @@ class DatabaseSchema {
   static const String _idxHumor =
       'CREATE INDEX IF NOT EXISTS idx_humor_usuario ON humor_registros (usuario_id, data_hora)';
 
+  static const String _idxAvaliacoes =
+      'CREATE INDEX IF NOT EXISTS idx_avaliacoes_prof ON avaliacoes (profissional_id)';
+
   static const List<String> _scripts = [
     _usuarios,
     _sessoes,
     _humor,
+    _avaliacoes,
     _appSessao,
     _idxSessoesProfissional,
     _idxSessoesPaciente,
     _idxHumor,
+    _idxAvaliacoes,
   ];
 
   static Future<void> executar(DatabaseExecutor db) async {

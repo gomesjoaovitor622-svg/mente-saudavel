@@ -11,7 +11,10 @@ import 'package:mente_saudavel/widgets/componentes.dart';
 /// Agendamento: escolhe profissional, data, horário e modalidade.
 /// Os horários já ocupados vêm do banco; os feriados vêm da BrasilAPI.
 class AgendarSessaoScreen extends StatefulWidget {
-  const AgendarSessaoScreen({super.key});
+  /// Se informado, o profissional já vem escolhido (vindo da busca).
+  final int? profissionalId;
+
+  const AgendarSessaoScreen({super.key, this.profissionalId});
 
   @override
   State<AgendarSessaoScreen> createState() => _AgendarSessaoScreenState();
@@ -44,8 +47,14 @@ class _AgendarSessaoScreenState extends State<AgendarSessaoScreen> {
     try {
       final lista = await _usuarioDao.listarProfissionais();
       if (!mounted) return;
+      final preEscolhido = widget.profissionalId;
       setState(() {
         _profissionais = lista;
+        if (preEscolhido != null) {
+          for (final u in lista) {
+            if (u.id == preEscolhido) _profissional = u;
+          }
+        }
         _carregando = false;
       });
     } catch (_) {
