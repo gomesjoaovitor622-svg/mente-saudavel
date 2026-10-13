@@ -5,7 +5,7 @@ name: Teste de implantação
 on:
   push:
     branches: [main, master, dev]
-    paths: ['deploy/**', 'server/**', 'lib/**', 'pubspec.yaml', '.github/workflows/deploy-smoke.yml']
+    paths: ['deploy/**', 'server/**', 'lib/**', 'tests/e2e/**', 'pubspec.yaml', '.github/workflows/deploy-smoke.yml']
   workflow_dispatch:
 
 concurrency:
