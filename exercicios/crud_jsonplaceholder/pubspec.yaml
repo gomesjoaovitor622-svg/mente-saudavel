@@ -1,0 +1,20 @@
+name: crud_jsonplaceholder
+description: CRUD completo (listar, ver, criar, editar, excluir) consumindo a API pública JSONPlaceholder.
+publish_to: 'none'
+version: 1.0.0+1
+
+environment:
+  sdk: '>=3.3.0 <4.0.0'
+
+dependencies:
+  flutter:
+    sdk: flutter
+  http: ^1.2.2          # chamadas HTTP (GET, POST, PUT, DELETE)
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  flutter_lints: any
+
+flutter:
+  uses-material-design: true
