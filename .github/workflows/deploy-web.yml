@@ -1,9 +1,13 @@
 name: Publicar versão Web
 
-# Publica o app como site no GitHub Pages. Ative antes: Settings > Pages > Source: "GitHub Actions".
+# Publica o CRUD (exercicios/crud_jsonplaceholder) como site no GitHub Pages.
+# Ative antes (uma vez): Settings > Pages > Source: "GitHub Actions".
+# Endereço: https://<usuario>.github.io/<repositorio>/
+# (O app Mente Saudável completo roda no servidor próprio — veja deploy/README-DEPLOY.md.)
 on:
   push:
-    branches: [main, master]
+    branches: [main, master, dev]
+    paths: ['exercicios/crud_jsonplaceholder/**', '.github/workflows/deploy-web.yml']
   workflow_dispatch:
 
 concurrency:
@@ -35,24 +39,21 @@ jobs:
           channel: stable
           cache: true
 
-      - name: Gerar a pasta web (em pasta temporária, sem tocar no código do app)
+      - name: Gerar a pasta web (em pasta temporária)
+        working-directory: exercicios/crud_jsonplaceholder
         run: |
-          flutter create --platforms=web --project-name mente_saudavel "$RUNNER_TEMP/gerado"
+          flutter create --platforms=web --project-name crud_jsonplaceholder "$RUNNER_TEMP/gerado"
           cp -r "$RUNNER_TEMP/gerado/web" ./web
 
-      - name: Ativar o SQLite no navegador
-        run: |
-          cp web_overrides/database_factory_setup.web.txt lib/database/database_factory_setup.dart
-          flutter pub add sqflite_common_ffi_web
-          dart run sqflite_common_ffi_web:setup
-          test -f web/sqlite3.wasm
-
       - name: Compilar o site
-        run: flutter build web --release --dart-define=DEMO_MODE=true --base-href "/${REPO_NAME}/"
+        working-directory: exercicios/crud_jsonplaceholder
+        run: |
+          flutter pub get
+          flutter build web --release --base-href "/${REPO_NAME}/"
 
       - uses: actions/upload-pages-artifact@fc324d3547104276b827a68afc52ff2a11cc49c9 # v5.0.0
         with:
-          path: build/web
+          path: exercicios/crud_jsonplaceholder/build/web
 
   deploy:
     name: Publicar no GitHub Pages
