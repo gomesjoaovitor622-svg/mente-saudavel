@@ -1,0 +1,5 @@
+# O projeto de exercício em exercicios/ é um pacote Flutter separado (tem o próprio pubspec,
+# análise e testes — veja .github/workflows/exercicio-crud.yml). Não entra na análise do app.
+analyzer:
+  exclude:
+    - exercicios/**
