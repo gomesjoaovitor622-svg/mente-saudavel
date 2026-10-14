@@ -35,12 +35,20 @@ def tocar(page: Page, rotulo: str) -> None:
 
 
 def digitar(page: Page, rotulo: str, valor: str) -> None:
+    """Digita como uma pessoa e confere o que realmente entrou no campo (tenta de novo se falhar)."""
     campo = page.get_by_label(rotulo).first
-    campo.click(timeout=TIMEOUT)
-    # Digita como uma pessoa (o Flutter só atualiza o campo com eventos de teclado reais).
-    page.keyboard.press("Control+A")
-    page.keyboard.press("Delete")
-    page.keyboard.type(valor, delay=20)
+    atual = None
+    for _ in range(5):
+        campo.click(timeout=TIMEOUT)
+        page.wait_for_timeout(400)  # o Flutter cria o campo de edição de forma assíncrona
+        page.keyboard.press("Control+A")
+        page.keyboard.press("Delete")
+        page.keyboard.type(valor, delay=30)
+        page.wait_for_timeout(200)
+        atual = page.evaluate("document.activeElement && document.activeElement.value")
+        if atual == valor:
+            return
+    raise AssertionError(f"campo {rotulo!r}: digitado {len(valor)} caracteres, ficou com {len(atual or '')}")
 
 
 def ok(nome: str) -> None:
