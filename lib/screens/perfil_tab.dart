@@ -8,6 +8,7 @@ import 'package:mente_saudavel/services/api_service.dart';
 import 'package:mente_saudavel/services/api_client.dart';
 import 'package:mente_saudavel/services/auth_service.dart';
 import 'package:mente_saudavel/utils/app_exception.dart';
+import 'package:mente_saudavel/utils/formatters.dart';
 import 'package:mente_saudavel/utils/validators.dart';
 import 'package:mente_saudavel/widgets/componentes.dart';
 
@@ -26,6 +27,7 @@ class _PerfilTabState extends State<PerfilTab> {
   late final TextEditingController _registro;
   late final TextEditingController _especialidade;
   late final TextEditingController _endereco;
+  late final TextEditingController _valor;
   final _cep = TextEditingController();
 
   bool _salvando = false;
@@ -41,6 +43,10 @@ class _PerfilTabState extends State<PerfilTab> {
     _registro = TextEditingController(text: u.registro ?? '');
     _especialidade = TextEditingController(text: u.especialidade ?? '');
     _endereco = TextEditingController(text: u.endereco ?? '');
+    final centavos = u.valorSessaoCentavos;
+    _valor = TextEditingController(
+      text: centavos == null ? '' : (centavos / 100).toStringAsFixed(2).replaceAll('.', ','),
+    );
   }
 
   @override
@@ -49,6 +55,7 @@ class _PerfilTabState extends State<PerfilTab> {
     _registro.dispose();
     _especialidade.dispose();
     _endereco.dispose();
+    _valor.dispose();
     _cep.dispose();
     super.dispose();
   }
@@ -63,6 +70,7 @@ class _PerfilTabState extends State<PerfilTab> {
         registro: u.isProfissional ? _registro.text.trim() : null,
         especialidade: u.isProfissional ? _especialidade.text.trim() : null,
         endereco: u.isProfissional ? _endereco.text.trim() : null,
+        valorSessaoCentavos: (u.isProfissional && usaServidor) ? centavosDeTexto(_valor.text) : null,
       );
       await AuthService.atualizarPerfil(atualizado);
       if (!mounted) return;
@@ -222,6 +230,17 @@ class _PerfilTabState extends State<PerfilTab> {
                       validator: (v) =>
                           (v == null || v.trim().isEmpty) ? 'Informe a especialidade.' : null,
                     ),
+                    if (usaServidor) ...[
+                      const SizedBox(height: 12),
+                      TextFormField(
+                        controller: _valor,
+                        keyboardType: const TextInputType.numberWithOptions(decimal: true),
+                        decoration: campo('Valor da sessão (R\$)', icone: Icons.payments_outlined, dica: 'Ex.: 150,00'),
+                        validator: (v) => (v == null || v.trim().isEmpty || centavosDeTexto(v) != null)
+                            ? null
+                            : 'Valor inválido (use de 0 a 10000, ex.: 150,00).',
+                      ),
+                    ],
                     const SizedBox(height: 12),
                     Row(
                       children: [

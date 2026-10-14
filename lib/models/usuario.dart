@@ -13,6 +13,7 @@ class Usuario {
   final String? registro; // CRP (somente profissional)
   final String? especialidade; // somente profissional
   final String? endereco; // consultório (somente profissional)
+  final int? valorSessaoCentavos; // preço da sessão em centavos (somente profissional, modo servidor)
   final String criadoEm;
 
   const Usuario({
@@ -25,6 +26,7 @@ class Usuario {
     this.registro,
     this.especialidade,
     this.endereco,
+    this.valorSessaoCentavos,
     required this.criadoEm,
   });
 
@@ -56,6 +58,7 @@ class Usuario {
       registro: map['registro'] as String?,
       especialidade: map['especialidade'] as String?,
       endereco: map['endereco'] as String?,
+      valorSessaoCentavos: (map['valor_sessao_centavos'] as num?)?.toInt(),
       criadoEm: (map['criado_em'] as String?) ?? '',
     );
   }
@@ -68,6 +71,7 @@ class Usuario {
     String? registro,
     String? especialidade,
     String? endereco,
+    int? valorSessaoCentavos,
   }) {
     return Usuario(
       id: id ?? this.id,
@@ -79,6 +83,7 @@ class Usuario {
       registro: registro ?? this.registro,
       especialidade: especialidade ?? this.especialidade,
       endereco: endereco ?? this.endereco,
+      valorSessaoCentavos: valorSessaoCentavos ?? this.valorSessaoCentavos,
       criadoEm: criadoEm,
     );
   }

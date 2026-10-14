@@ -121,6 +121,7 @@ class AuthService {
         'registro': atualizado.registro,
         'especialidade': atualizado.especialidade,
         'endereco': atualizado.endereco,
+        'valor_sessao_centavos': atualizado.valorSessaoCentavos,
       });
       atual.value = _doServidor(r);
       return;

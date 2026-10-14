@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from datetime import datetime, timedelta
+from typing import Any
 
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
@@ -15,7 +16,7 @@ def popular_demo(db: Session) -> None:
     if (db.scalar(select(func.count()).select_from(Usuario)) or 0) > 0:
         return  # só semeia banco vazio
 
-    def user(nome: str, email: str, senha: str, perfil: str, **extra: str) -> Usuario:
+    def user(nome: str, email: str, senha: str, perfil: str, **extra: Any) -> Usuario:
         u = Usuario(nome=nome, email=email, senha_hash=hash_senha(senha), perfil=perfil, **extra)
         db.add(u)
         db.flush()
@@ -28,6 +29,7 @@ def popular_demo(db: Session) -> None:
         "profissional",
         registro="06/12345",
         especialidade="Psicologia clínica",
+        valor_sessao_centavos=15000,
         endereco="Av. Paulista, 1000, Bela Vista, São Paulo - SP",
     )
     user("Dr. Rafael Andrade", "rafael@mentesaudavel.app", "mente123", "profissional", registro="06/54321", especialidade="Terapia cognitivo-comportamental")
@@ -38,7 +40,7 @@ def popular_demo(db: Session) -> None:
     dia = agora.replace(hour=10) - timedelta(days=9)
 
     def sessao(quando: datetime, modalidade: str, status: str, notas: str | None = None) -> Sessao:
-        s = Sessao(paciente_id=carlos.id, profissional_id=helena.id, data_hora=quando, modalidade=modalidade, status=status, anotacoes=notas)
+        s = Sessao(paciente_id=carlos.id, profissional_id=helena.id, data_hora=quando, modalidade=modalidade, status=status, anotacoes=notas, valor_centavos=15000)
         db.add(s)
         db.flush()
         return s

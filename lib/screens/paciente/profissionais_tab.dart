@@ -98,6 +98,8 @@ class _ProfissionaisTabState extends State<ProfissionaisTab> {
                                 crossAxisAlignment: CrossAxisAlignment.start,
                                 children: [
                                   if ((p.especialidade ?? '').isNotEmpty) Text(p.especialidade!),
+                                  if ((p.valorSessaoCentavos ?? 0) > 0)
+                                    Text('${formatarReais(p.valorSessaoCentavos!)} por sessão'),
                                   const SizedBox(height: 2),
                                   p.media == null
                                       ? Text('Sem avaliações ainda',
@@ -111,7 +113,7 @@ class _ProfissionaisTabState extends State<ProfissionaisTab> {
                                         ),
                                 ],
                               ),
-                              isThreeLine: (p.especialidade ?? '').isNotEmpty,
+                              isThreeLine: (p.especialidade ?? '').isNotEmpty || (p.valorSessaoCentavos ?? 0) > 0,
                               trailing: const Icon(Icons.chevron_right),
                             ),
                           );
@@ -147,6 +149,7 @@ class _DetalheProfissional extends StatelessWidget {
                 if ((p.registro ?? '').isNotEmpty)
                   Text('CRP ${p.registro}', style: TextStyle(color: Colors.grey.shade700)),
                 if ((p.especialidade ?? '').isNotEmpty) Text(p.especialidade!),
+                if ((p.valorSessaoCentavos ?? 0) > 0) Text('${formatarReais(p.valorSessaoCentavos!)} por sessão'),
                 if ((p.endereco ?? '').isNotEmpty)
                   Padding(
                     padding: const EdgeInsets.only(top: 4),

@@ -250,6 +250,7 @@ class _SessaoSheetState extends State<_SessaoSheet> {
                 endereco != null &&
                 endereco.isNotEmpty)
               _linha(Icons.map_outlined, endereco),
+            if (s.valorCentavos > 0) _linha(Icons.payments_outlined, formatarReais(s.valorCentavos)),
             if (s.agendada && s.modalidade == Modalidade.online)
               _botaoLink(Icons.videocam, 'Copiar link da videochamada', _linkVideo,
                   'Link copiado. Cole no navegador na hora da sessão.'),

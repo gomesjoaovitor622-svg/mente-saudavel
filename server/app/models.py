@@ -24,6 +24,7 @@ class Usuario(Base):
     registro: Mapped[str | None] = mapped_column(String(40), nullable=True)
     especialidade: Mapped[str | None] = mapped_column(String(120), nullable=True)
     endereco: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    valor_sessao_centavos: Mapped[int | None] = mapped_column(Integer, nullable=True)  # preço do profissional (R$ em centavos)
     criado_em: Mapped[datetime] = mapped_column(DateTime, default=_now)
 
 
@@ -42,6 +43,7 @@ class Sessao(Base):
     modalidade: Mapped[str] = mapped_column(String(20))
     status: Mapped[str] = mapped_column(String(20), default="agendada")
     anotacoes: Mapped[str | None] = mapped_column(Text, nullable=True)
+    valor_centavos: Mapped[int] = mapped_column(Integer, default=0, server_default="0")  # preço combinado na hora do agendamento
     criado_em: Mapped[datetime] = mapped_column(DateTime, default=_now)
 
     paciente: Mapped[Usuario] = relationship(foreign_keys=[paciente_id])

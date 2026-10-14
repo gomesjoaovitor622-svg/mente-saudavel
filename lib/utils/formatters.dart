@@ -37,3 +37,19 @@ String primeiroNome(String nome) {
   if (partes.isEmpty || partes.first.isEmpty) return nome;
   return partes.first;
 }
+
+/// Ex.: 15000 -> "R$ 150,00"; 123456 -> "R$ 1.234,56"
+String formatarReais(int centavos) {
+  final reais = centavos ~/ 100;
+  final milhar = reais.toString().replaceAllMapped(RegExp(r'\B(?=(\d{3})+(?!\d))'), (_) => '.');
+  return 'R\$ $milhar,${doisDigitos(centavos % 100)}';
+}
+
+/// "150", "150,5" ou "150.50" -> centavos. Vazio, inválido, negativo ou acima de R$ 10.000 -> null.
+int? centavosDeTexto(String texto) {
+  final limpo = texto.trim().replaceAll(',', '.');
+  if (limpo.isEmpty) return null;
+  final valor = double.tryParse(limpo);
+  if (valor == null || valor < 0 || valor > 10000) return null;
+  return (valor * 100).round();
+}

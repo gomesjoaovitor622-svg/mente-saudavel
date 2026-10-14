@@ -45,3 +45,6 @@ jobs:
           code=${PIPESTATUS[0]}
           python3 tools/flutter_annotations.py < "$RUNNER_TEMP/analyze.txt"
           exit "$code"
+
+      - name: Testes do app (formatadores e modelos)
+        run: flutter test --no-pub

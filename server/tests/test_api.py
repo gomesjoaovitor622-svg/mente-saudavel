@@ -199,3 +199,63 @@ def test_exportar_meus_dados_paciente_nao_traz_anotacoes_do_profissional(client)
     do_prof = client.get("/auth/eu/exportar", headers=prof["h"]).json()
     assert do_prof["sessoes"][0]["anotacoes"] == "SIGILO CLINICO" and "humor" not in do_prof
     assert client.get("/auth/eu/exportar").status_code == 401
+
+
+def test_preco_da_sessao_e_financeiro_do_profissional(client):
+    prof = cadastrar(client, "dra@x.com", "profissional")
+    pac = cadastrar(client, "p@x.com")
+    perfil = {"nome": "Dra Teste", "registro": "06/1", "valor_sessao_centavos": 20000}
+    assert client.patch("/auth/eu", headers=prof["h"], json=perfil).json()["valor_sessao_centavos"] == 20000
+    # o paciente vê o preço na busca
+    assert client.get("/profissionais", headers=pac["h"]).json()[0]["valor_sessao_centavos"] == 20000
+
+    s = client.post("/sessoes", headers=pac["h"], json={"profissional_id": prof["id"], "data_hora": futuro(), "modalidade": "Online"}).json()
+    assert s["valor_centavos"] == 20000
+    # mudar o preço depois NÃO altera sessões já agendadas (preço congelado)
+    client.patch("/auth/eu", headers=prof["h"], json={**perfil, "valor_sessao_centavos": 30000})
+    assert client.get("/sessoes", headers=pac["h"]).json()[0]["valor_centavos"] == 20000
+
+    mes = datetime.fromisoformat(s["data_hora"]).strftime("%Y-%m")
+    antes = client.get(f"/profissional/financeiro?mes={mes}", headers=prof["h"]).json()
+    assert antes["a_receber_centavos"] == 20000 and antes["recebido_centavos"] == 0 and antes["sessoes_agendadas"] == 1
+    client.patch(f"/sessoes/{s['id']}", headers=prof["h"], json={"status": "concluida"})
+    depois = client.get(f"/profissional/financeiro?mes={mes}", headers=prof["h"]).json()
+    assert depois["recebido_centavos"] == 20000 and depois["a_receber_centavos"] == 0 and depois["sessoes_concluidas"] == 1
+
+
+def test_financeiro_so_para_profissional_e_valida_mes_e_preco(client):
+    prof = cadastrar(client, "dra@x.com", "profissional")
+    pac = cadastrar(client, "p@x.com")
+    assert client.get("/profissional/financeiro", headers=pac["h"]).status_code == 403
+    assert client.get("/profissional/financeiro", headers=prof["h"]).status_code == 200  # mês atual
+    assert client.get("/profissional/financeiro?mes=2026-13", headers=prof["h"]).status_code == 422
+    assert client.get("/profissional/financeiro").status_code == 401
+    assert client.patch("/auth/eu", headers=prof["h"], json={"nome": "Dra", "valor_sessao_centavos": -5}).status_code == 422
+
+
+def test_migracao_adiciona_colunas_em_banco_antigo(tmp_path):
+    """Banco criado pela versão anterior (sem as colunas de preço) é atualizado sem perder dados."""
+    import sqlite3
+
+    from sqlalchemy import create_engine, inspect
+
+    from app.db import garantir_colunas
+
+    arquivo = tmp_path / "antigo.db"
+    con = sqlite3.connect(arquivo)
+    con.execute("CREATE TABLE usuarios (id INTEGER PRIMARY KEY, nome TEXT)")
+    con.execute("CREATE TABLE sessoes (id INTEGER PRIMARY KEY, status TEXT)")
+    con.execute("INSERT INTO usuarios (nome) VALUES ('Ana')")
+    con.execute("INSERT INTO sessoes (status) VALUES ('agendada')")
+    con.commit()
+    con.close()
+
+    engine = create_engine(f"sqlite:///{arquivo}")
+    assert sorted(garantir_colunas(engine)) == ["sessoes.valor_centavos", "usuarios.valor_sessao_centavos"]
+    assert garantir_colunas(engine) == []  # idempotente
+    colunas = {c["name"] for c in inspect(engine).get_columns("sessoes")}
+    assert "valor_centavos" in colunas
+    with engine.connect() as c:
+        assert c.exec_driver_sql("SELECT valor_centavos FROM sessoes").scalar() == 0
+        assert c.exec_driver_sql("SELECT nome FROM usuarios").scalar() == "Ana"
+    engine.dispose()

@@ -48,6 +48,7 @@ class ProfissionalResumo {
   final String? registro;
   final String? especialidade;
   final String? endereco;
+  final int? valorSessaoCentavos;
   final double? media; // null = ainda sem avaliações
   final int totalAvaliacoes;
 
@@ -57,6 +58,7 @@ class ProfissionalResumo {
     this.registro,
     this.especialidade,
     this.endereco,
+    this.valorSessaoCentavos,
     this.media,
     this.totalAvaliacoes = 0,
   });
@@ -67,6 +69,7 @@ class ProfissionalResumo {
         registro: m['registro'] as String?,
         especialidade: m['especialidade'] as String?,
         endereco: m['endereco'] as String?,
+        valorSessaoCentavos: (m['valor_sessao_centavos'] as num?)?.toInt(),
         media: (m['media'] as num?)?.toDouble(),
         totalAvaliacoes: (m['total'] as num?)?.toInt() ?? 0,
       );

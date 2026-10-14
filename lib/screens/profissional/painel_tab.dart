@@ -3,7 +3,10 @@ import 'package:mente_saudavel/database/avaliacao_dao.dart';
 import 'package:mente_saudavel/database/sessao_dao.dart';
 import 'package:mente_saudavel/models/sessao.dart';
 import 'package:mente_saudavel/models/usuario.dart';
+import 'package:mente_saudavel/services/api_client.dart';
 import 'package:mente_saudavel/services/auth_service.dart';
+import 'package:mente_saudavel/utils/build_flags.dart';
+import 'package:mente_saudavel/utils/formatters.dart';
 import 'package:mente_saudavel/widgets/componentes.dart';
 import 'package:mente_saudavel/widgets/sessao_sheet.dart';
 
@@ -25,6 +28,8 @@ class _PainelTabState extends State<PainelTab> {
   int _pacientesAtivos = 0;
   double? _notaMedia;
   int _totalAvaliacoes = 0;
+  int _recebido = 0; // centavos (modo servidor)
+  int _aReceber = 0;
   List<Sessao> _agendaHoje = [];
   bool _carregando = true;
   String? _erro;
@@ -42,6 +47,11 @@ class _PainelTabState extends State<PainelTab> {
       final id = _usuario.id!;
       final atendimentos = await _dao.atendimentosHoje(id);
       final pacientes = await _dao.pacientesAtivos(id);
+      if (usaServidor) {
+        final fin = await ApiClient.get('/profissional/financeiro') as Map<String, dynamic>;
+        _recebido = (fin['recebido_centavos'] as num).toInt();
+        _aReceber = (fin['a_receber_centavos'] as num).toInt();
+      }
       final avaliacoes = await _avaliacaoDao.doProfissional(id, limite: 1000);
       final agenda = await _dao.doProfissionalNoDia(id, DateTime.now(), incluirCanceladas: false);
       if (!mounted) return;
@@ -107,6 +117,16 @@ class _PainelTabState extends State<PainelTab> {
                       ? 'avaliação média (sem avaliações ainda)'
                       : 'avaliação média ($_totalAvaliacoes avaliações)',
                 ),
+                if (usaServidor) ...[
+                  const SizedBox(height: 12),
+                  Row(
+                    children: [
+                      Expanded(child: StatCard(valor: formatarReais(_recebido), rotulo: 'recebido neste mês')),
+                      const SizedBox(width: 12),
+                      Expanded(child: StatCard(valor: formatarReais(_aReceber), rotulo: 'a receber (agendadas)')),
+                    ],
+                  ),
+                ],
                 const SizedBox(height: 20),
                 Row(
                   children: [

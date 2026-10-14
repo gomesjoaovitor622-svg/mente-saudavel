@@ -24,6 +24,7 @@ class Sessao {
   final String? profissionalRegistro;
   final String? profissionalEspecialidade;
   final String? profissionalEndereco;
+  final int valorCentavos; // preço combinado no agendamento (modo servidor)
 
   const Sessao({
     this.id,
@@ -38,6 +39,7 @@ class Sessao {
     this.profissionalRegistro,
     this.profissionalEspecialidade,
     this.profissionalEndereco,
+    this.valorCentavos = 0,
   });
 
   bool get agendada => status == StatusSessao.agendada;
@@ -81,6 +83,7 @@ class Sessao {
       profissionalRegistro: m['profissional_registro'] as String?,
       profissionalEspecialidade: m['profissional_especialidade'] as String?,
       profissionalEndereco: m['profissional_endereco'] as String?,
+      valorCentavos: (m['valor_centavos'] as num?)?.toInt() ?? 0,
     );
   }
 }

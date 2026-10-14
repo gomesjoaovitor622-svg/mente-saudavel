@@ -14,7 +14,7 @@ from sqlalchemy.orm import Session, sessionmaker
 
 from app import schemas
 from app.config import Settings, load_settings
-from app.db import Base, make_engine, make_session_factory, session_iter
+from app.db import Base, garantir_colunas, make_engine, make_session_factory, session_iter
 from app.models import Avaliacao, Humor, Sessao, Usuario
 from app.security import HASH_FALSO, criar_token, hash_senha, ler_token, verificar_senha
 
@@ -28,6 +28,7 @@ def _usuario_out(u: Usuario) -> dict[str, Any]:
         "registro": u.registro,
         "especialidade": u.especialidade,
         "endereco": u.endereco,
+        "valor_sessao_centavos": u.valor_sessao_centavos,
         "criado_em": u.criado_em.isoformat(),
     }
 
@@ -47,6 +48,7 @@ def _sessao_out(s: Sessao, *, ver_anotacoes: bool) -> dict[str, Any]:
         "profissional_registro": s.profissional.registro,
         "profissional_especialidade": s.profissional.especialidade,
         "profissional_endereco": s.profissional.endereco,
+        "valor_centavos": s.valor_centavos,
     }
 
 
@@ -97,6 +99,7 @@ def create_app(settings: Settings | None = None, engine: Engine | None = None) -
     cfg = settings or load_settings()
     eng = engine or make_engine(cfg.database_url)
     Base.metadata.create_all(eng)
+    garantir_colunas(eng)
     factory: sessionmaker[Session] = make_session_factory(eng)
     limite = _LimiteLogin(cfg.login_max_attempts)
     limite_cadastro = _LimiteLogin(cfg.signup_max_attempts)  # por IP: evita criação em massa de contas
@@ -245,6 +248,7 @@ def create_app(settings: Settings | None = None, engine: Engine | None = None) -
             user.registro = body.registro or None
             user.especialidade = body.especialidade or None
             user.endereco = body.endereco or None
+            user.valor_sessao_centavos = body.valor_sessao_centavos
         db.commit()
         return _usuario_out(user)
 
@@ -284,6 +288,7 @@ def create_app(settings: Settings | None = None, engine: Engine | None = None) -
                 "registro": u.registro,
                 "especialidade": u.especialidade,
                 "endereco": u.endereco,
+                "valor_sessao_centavos": u.valor_sessao_centavos,
                 "media": float(m) if m is not None else None,
                 "total": int(t),
             }
@@ -348,7 +353,13 @@ def create_app(settings: Settings | None = None, engine: Engine | None = None) -
         msg = mensagem_conflito(db, prof.id, user.id, body.data_hora, -1)
         if msg:
             raise HTTPException(409, msg)
-        s = Sessao(paciente_id=user.id, profissional_id=prof.id, data_hora=body.data_hora, modalidade=body.modalidade)
+        s = Sessao(
+            paciente_id=user.id,
+            profissional_id=prof.id,
+            data_hora=body.data_hora,
+            modalidade=body.modalidade,
+            valor_centavos=prof.valor_sessao_centavos or 0,  # congela o preço da hora do agendamento
+        )
         db.add(s)
         db.commit()
         return _sessao_out(s, ver_anotacoes=False)
@@ -387,6 +398,37 @@ def create_app(settings: Settings | None = None, engine: Engine | None = None) -
         db.delete(s)
         db.commit()
         return Response(status_code=204)
+
+    @app.get("/profissional/financeiro")
+    def financeiro(user: Eu, db: Db, mes: str | None = Query(default=None, pattern=r"^\d{4}-(0[1-9]|1[0-2])$")) -> dict[str, Any]:
+        """Faturamento do mês (YYYY-MM; padrão: mês atual): recebido (concluídas) e a receber (agendadas)."""
+        exigir_perfil(user, "profissional")
+        hoje = datetime.now()
+        ano, num = (int(mes[:4]), int(mes[5:])) if mes else (hoje.year, hoje.month)
+        inicio = datetime(ano, num, 1)
+        fim = datetime(ano + (num == 12), 1 if num == 12 else num + 1, 1)
+
+        def somar(status: str) -> tuple[int, int]:
+            total, qtd = db.execute(
+                select(func.coalesce(func.sum(Sessao.valor_centavos), 0), func.count(Sessao.id)).where(
+                    Sessao.profissional_id == user.id,
+                    Sessao.status == status,
+                    Sessao.data_hora >= inicio,
+                    Sessao.data_hora < fim,
+                )
+            ).one()
+            return int(total), int(qtd)
+
+        recebido, concluidas = somar("concluida")
+        a_receber, agendadas = somar("agendada")
+        return {
+            "mes": f"{ano:04d}-{num:02d}",
+            "recebido_centavos": recebido,
+            "sessoes_concluidas": concluidas,
+            "a_receber_centavos": a_receber,
+            "sessoes_agendadas": agendadas,
+            "valor_sessao_centavos": user.valor_sessao_centavos,
+        }
 
     @app.get("/profissional/pacientes")
     def pacientes(user: Eu, db: Db) -> list[dict[str, Any]]:

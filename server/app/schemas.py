@@ -33,6 +33,7 @@ class PerfilIn(_Base):
     registro: str | None = Field(default=None, max_length=40)
     especialidade: str | None = Field(default=None, max_length=120)
     endereco: str | None = Field(default=None, max_length=255)
+    valor_sessao_centavos: int | None = Field(default=None, ge=0, le=1_000_000)  # até R$ 10.000,00
 
 
 class SenhaIn(_Base):
@@ -48,6 +49,7 @@ class UsuarioOut(BaseModel):
     registro: str | None = None
     especialidade: str | None = None
     endereco: str | None = None
+    valor_sessao_centavos: int | None = None
     criado_em: str
 
 
