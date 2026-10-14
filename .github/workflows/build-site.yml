@@ -41,7 +41,7 @@ jobs:
           cp -r "$RUNNER_TEMP/gerado/web" ./web
 
       - name: Compilar (sem SQLite no navegador, dados no servidor)
-        run: flutter build web --release --dart-define=API_URL=/api
+        run: flutter build web --release --dart-define=API_URL=/api --no-web-resources-cdn
 
       - name: Empacotar
         run: tar -czf "$RUNNER_TEMP/site-web.tar.gz" -C build/web .

@@ -14,6 +14,8 @@ import re
 import sys
 import time
 from pathlib import Path
+from urllib.parse import urlsplit
+from zoneinfo import ZoneInfo
 
 from playwright.sync_api import Page, sync_playwright
 from playwright.sync_api import TimeoutError as PWTimeout
@@ -22,7 +24,14 @@ BASE = sys.argv[1] if len(sys.argv) > 1 else "https://localhost"
 SHOTS = Path(sys.argv[2] if len(sys.argv) > 2 else "e2e-shots")
 SHOTS.mkdir(parents=True, exist_ok=True)
 TIMEOUT = 30_000
+PERMITIDOS = {"localhost", "brasilapi.com.br", "viacep.com.br"}  # APIs públicas usadas de propósito pelo app
+externos: set[str] = set()
 etapas: list[str] = []
+
+
+def HOJE() -> dt.date:
+    return dt.datetime.now(ZoneInfo("America/Sao_Paulo")).date()
+
 
 
 def ver(page: Page, texto: str, timeout: int = TIMEOUT) -> None:
@@ -128,6 +137,15 @@ def fluxo_cadastro_e_profissional(page: Page) -> None:
     ver(page, "avaliação média")
     ok("painel mostra a avaliação média")
 
+    tocar(page, "Agenda")
+    ver(page, "Nenhuma sessão neste dia")
+    tocar(page, "Próximo dia")  # a sessão de demonstração está marcada para amanhã
+    page.get_by_role("button", name=re.compile("Carlos")).first.click(timeout=TIMEOUT)
+    ver(page, "Marcar como concluída")
+    tocar(page, "Marcar como concluída")
+    ver(page, "marcada como concluída")
+    ok("profissional conclui uma sessão")
+
 
 def entrar(page: Page, email: str, senha: str, aguardar: str) -> None:
     abrir_site(page)
@@ -169,8 +187,8 @@ def fluxo_acoes_paciente(page: Page) -> None:
     ver(page, "Agendar sessão")
     tocar(page, "Dr. Rafael Andrade")
     tocar(page, "Escolher data")
-    amanha = dt.date.today() + dt.timedelta(days=1)
-    if amanha.month != dt.date.today().month:
+    amanha = HOJE() + dt.timedelta(days=1)
+    if amanha.month != HOJE().month:
         tocar(page, "Próximo mês")
     page.get_by_role("button", name=re.compile(rf"^{amanha.day}\b")).first.click(timeout=TIMEOUT)
     tocar(page, "OK")
@@ -180,6 +198,38 @@ def fluxo_acoes_paciente(page: Page) -> None:
     ver(page, "Sessão agendada com sucesso")
     ver(page, "Rafael Andrade")
     ok("agendar nova sessão aparece na lista")
+
+    # --- cancelar a sessão recém-criada ---
+    page.get_by_role("button", name=re.compile("Rafael Andrade")).first.click(timeout=TIMEOUT)
+    ver(page, "Remarcar")
+    tocar(page, "Cancelar sessão")
+    ver(page, "Deseja realmente cancelar")
+    page.get_by_role("button", name="Cancelar sessão").last.click(timeout=TIMEOUT)
+    ver(page, "Sessão cancelada")
+    ok("cancelar sessão")
+
+
+def fluxo_cadastro_novo(page: Page) -> None:
+    """Cria uma conta de paciente pelo site, usa o app e exclui a conta."""
+    email = f"e2e{int(time.time())}@teste.com"
+    abrir_site(page)
+    tocar(page, "Criar uma conta")
+    digitar(page, "E-mail", email)
+    digitar(page, "Senha", "senhasegura1")
+    tocar(page, "Continuar")
+    digitar(page, "Seu nome", "Pessoa de Teste")
+    tocar(page, "Continuar")
+    tocar(page, "Paciente")
+    ver(page, "Buscar")
+    ok("cadastro de nova conta de paciente entra no app")
+    tocar(page, "Perfil")
+    ver(page, "Pessoa de Teste")
+    ok("perfil mostra o nome cadastrado")
+    tocar(page, "Excluir minha conta")
+    ver(page, "não pode ser desfeita")
+    page.get_by_role("button", name="Excluir conta").last.click(timeout=TIMEOUT)
+    ver(page, "Criar uma conta")
+    ok("excluir a própria conta volta ao login")
 
 
 def fluxo_celular(page: Page) -> None:
@@ -208,6 +258,7 @@ def main() -> int:
             ("paciente", fluxo_paciente, False),
             ("profissional", fluxo_cadastro_e_profissional, False),
             ("acoes", fluxo_acoes_paciente, False),
+            ("cadastro", fluxo_cadastro_novo, False),
             ("celular", fluxo_celular, True),
         )
         for nome, fluxo, celular in fluxos:
@@ -225,6 +276,7 @@ def main() -> int:
                 if "/auth/entrar" in r.url
                 else None,
             )
+            page.on("request", lambda r: externos.add(urlsplit(r.url).hostname or "") if urlsplit(r.url).scheme in ("http", "https") else None)
             page.on("console", lambda m, e=erros_console: e.append(m.text) if m.type == "error" else None)
             print(f"== fluxo: {nome}", flush=True)
             try:
@@ -237,6 +289,10 @@ def main() -> int:
             finally:
                 ctx.close()
         browser.close()
+    indevidos = sorted(h for h in externos if h not in PERMITIDOS)
+    if indevidos:
+        print(f"::error title=Site chama servidores externos::{indevidos}")
+        falhas.append("privacidade")
     if falhas:
         print(f"\nE2E FALHOU nos fluxos: {', '.join(falhas)}")
         return 1
