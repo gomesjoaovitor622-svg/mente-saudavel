@@ -78,8 +78,8 @@ jobs:
       - name: Testar o site no navegador (clica nas telas de verdade)
         run: python tests/e2e/site_e2e.py https://localhost "$RUNNER_TEMP/e2e-shots"
 
-      - name: Guardar capturas de tela da falha
-        if: ${{ failure() }}
+      - name: Guardar capturas de tela (celular e falhas)
+        if: ${{ always() }}
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: e2e-capturas

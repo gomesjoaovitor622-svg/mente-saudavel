@@ -9,6 +9,8 @@ Falhas viram anotações `::error::` no GitHub e deixam capturas de tela na past
 
 from __future__ import annotations
 
+import datetime as dt
+import re
 import sys
 import time
 from pathlib import Path
@@ -30,8 +32,16 @@ def ver(page: Page, texto: str, timeout: int = TIMEOUT) -> None:
 
 
 def tocar(page: Page, rotulo: str) -> None:
-    """Clica num botão/aba pelo rótulo."""
-    page.get_by_role("button", name=rotulo).or_(page.get_by_role("tab", name=rotulo)).first.click(timeout=TIMEOUT)
+    """Clica num botão/aba/chip pelo rótulo (aceita parte do texto)."""
+    achados = (
+        page.get_by_role("button", name=rotulo)
+        .or_(page.get_by_role("tab", name=rotulo))
+        .or_(page.get_by_role("radio", name=rotulo))
+        .or_(page.get_by_role("checkbox", name=rotulo))
+    )
+    if achados.count() == 0:
+        achados = page.locator(f'[aria-label*="{rotulo}"]')
+    achados.first.click(timeout=TIMEOUT)
 
 
 def digitar(page: Page, rotulo: str, valor: str) -> None:
@@ -119,12 +129,94 @@ def fluxo_cadastro_e_profissional(page: Page) -> None:
     ok("painel mostra a avaliação média")
 
 
+def entrar(page: Page, email: str, senha: str, aguardar: str) -> None:
+    abrir_site(page)
+    digitar(page, "E-mail", email)
+    digitar(page, "Senha", senha)
+    tocar(page, "Entrar")
+    ver(page, aguardar)
+
+
+def fluxo_acoes_paciente(page: Page) -> None:
+    """Escreve no banco pelo navegador: humor, avaliação e agendamento."""
+    entrar(page, "carlos@email.com", "123456", "Buscar")
+
+    # --- registrar humor ---
+    tocar(page, "Humor")
+    ver(page, "Diário de humor")
+    tocar(page, "😄")
+    tocar(page, "Registrar humor")
+    ver(page, "Humor registrado")
+    ver(page, "Muito bem")
+    ok("registrar humor grava e aparece no histórico")
+
+    # --- avaliar uma sessão concluída ---
+    tocar(page, "Sessões")
+    ver(page, "Minhas sessões")
+    tocar(page, "Concluídas")
+    page.get_by_role("button", name=re.compile("Helena")).first.click(timeout=TIMEOUT)
+    ver(page, "Avaliar atendimento")
+    tocar(page, "Avaliar atendimento")
+    ver(page, "Avaliar Dra")
+    tocar(page, "5 estrelas")
+    tocar(page, "Enviar")
+    ver(page, "Avaliação enviada")
+    ok("avaliar sessão concluída (5 estrelas)")
+
+    # --- agendar uma nova sessão (amanhã) ---
+    tocar(page, "Todas")
+    tocar(page, "Agendar")
+    ver(page, "Agendar sessão")
+    tocar(page, "Dr. Rafael Andrade")
+    tocar(page, "Escolher data")
+    amanha = dt.date.today() + dt.timedelta(days=1)
+    if amanha.month != dt.date.today().month:
+        tocar(page, "Próximo mês")
+    page.get_by_role("button", name=re.compile(rf"^{amanha.day}\b")).first.click(timeout=TIMEOUT)
+    tocar(page, "OK")
+    ver(page, "10:00")
+    tocar(page, "10:00")
+    tocar(page, "Confirmar agendamento")
+    ver(page, "Sessão agendada com sucesso")
+    ver(page, "Rafael Andrade")
+    ok("agendar nova sessão aparece na lista")
+
+
+def fluxo_celular(page: Page) -> None:
+    """Tela de celular (390x844, toque): login, abas e agendamento cabem na tela."""
+    entrar(page, "carlos@email.com", "123456", "Buscar")
+    for aba, texto in (("Buscar", "Profissionais"), ("Sessões", "Minhas sessões"), ("Humor", "Diário de humor"), ("Perfil", "Sair")):
+        tocar(page, aba)
+        ver(page, texto)
+        page.screenshot(path=str(SHOTS / f"celular-{aba}.png"))
+    largura = page.evaluate("document.documentElement.scrollWidth")
+    assert largura <= 390 + 1, f"rolagem horizontal no celular (largura {largura})"
+    ok("celular: login e as 4 abas funcionam sem rolagem horizontal")
+    tocar(page, "Sessões")
+    tocar(page, "Agendar")
+    ver(page, "Agendar sessão")
+    page.screenshot(path=str(SHOTS / "celular-agendar.png"))
+    ok("celular: tela de agendamento abre")
+
+
 def main() -> int:
     inicio = time.time()
+    falhas: list[str] = []
     with sync_playwright() as pw:
         browser = pw.chromium.launch()
-        for nome, fluxo in (("paciente", fluxo_paciente), ("profissional", fluxo_cadastro_e_profissional)):
-            ctx = browser.new_context(ignore_https_errors=True, viewport={"width": 1100, "height": 800}, locale="pt-BR")
+        fluxos = (
+            ("paciente", fluxo_paciente, False),
+            ("profissional", fluxo_cadastro_e_profissional, False),
+            ("acoes", fluxo_acoes_paciente, False),
+            ("celular", fluxo_celular, True),
+        )
+        for nome, fluxo, celular in fluxos:
+            opcoes: dict = {"ignore_https_errors": True, "locale": "pt-BR", "timezone_id": "America/Sao_Paulo"}
+            if celular:
+                opcoes.update(viewport={"width": 390, "height": 844}, device_scale_factor=2, is_mobile=True, has_touch=True)
+            else:
+                opcoes.update(viewport={"width": 1100, "height": 800})
+            ctx = browser.new_context(**opcoes)
             page = ctx.new_page()
             erros_console: list[str] = []
             page.on(
@@ -141,11 +233,13 @@ def main() -> int:
                 page.screenshot(path=str(SHOTS / f"falha-{nome}.png"))
                 arvore = page.evaluate("document.querySelector('flt-semantics-host')?.innerText || '(sem árvore de acessibilidade)'")
                 print(f"::error title=E2E falhou no fluxo {nome}::{str(exc).splitlines()[0][:300]} | etapas ok: {len(etapas)} | tela: {str(arvore)[:600]!r} | console: {erros_console[:6]!r}")
-                browser.close()
-                return 1
+                falhas.append(nome)
             finally:
                 ctx.close()
         browser.close()
+    if falhas:
+        print(f"\nE2E FALHOU nos fluxos: {', '.join(falhas)}")
+        return 1
     print(f"\nE2E ok: {len(etapas)} verificações em {time.time() - inicio:.0f}s")
     return 0
 
