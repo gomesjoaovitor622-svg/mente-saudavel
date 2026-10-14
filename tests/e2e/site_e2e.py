@@ -103,7 +103,8 @@ def fluxo_paciente(page: Page) -> None:
     tocar(page, "Buscar")
     ver(page, "Dra. Helena Marques")
     ver(page, "Dr. Rafael Andrade")
-    ok("aba Buscar lista os profissionais (vindos do servidor)")
+    ver(page, "R$ 150,00 por sessão")
+    ok("aba Buscar lista os profissionais com o preço da sessão (vindos do servidor)")
 
     tocar(page, "Sessões")
     ver(page, "Minhas sessões")
@@ -136,6 +137,9 @@ def fluxo_cadastro_e_profissional(page: Page) -> None:
     ok("login do profissional abre o painel")
     ver(page, "avaliação média")
     ok("painel mostra a avaliação média")
+    ver(page, "recebido neste mês")
+    ver(page, "a receber")
+    ok("painel mostra o faturamento (recebido e a receber)")
 
     tocar(page, "Agenda")
     ver(page, "Nenhuma sessão neste dia")
