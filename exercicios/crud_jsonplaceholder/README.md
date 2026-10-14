@@ -5,7 +5,7 @@ CRUD completo de **posts** consumindo <https://jsonplaceholder.typicode.com>.
 | Letra | Operação | HTTP | Onde está no código |
 |---|---|---|---|
 | **C**reate | criar post | `POST /posts` | `PostService.criar` · `post_form_screen.dart` |
-| **R**ead | listar / ver / comentários | `GET /posts`, `GET /posts/{id}`, `GET /posts/{id}/comments` | `PostService.listar/buscar/comentarios` · `posts_screen.dart`, `post_detail_screen.dart` |
+| **R**ead | listar (só **20** posts) / ver / comentários | `GET /posts?_limit=20`, `GET /posts/{id}`, `GET /posts/{id}/comments` | `PostService.listar/buscar/comentarios` · `posts_screen.dart`, `post_detail_screen.dart` |
 | **U**pdate | editar post | `PUT /posts/{id}` | `PostService.atualizar` · `post_form_screen.dart` |
 | **D**elete | excluir post | `DELETE /posts/{id}` | `PostService.excluir` · `posts_screen.dart` |
 
@@ -15,7 +15,7 @@ cd exercicios/crud_jsonplaceholder
 flutter create --platforms=android,web,windows .   # 1ª vez: gera as pastas de plataforma
 flutter pub get
 flutter run            # ou: flutter run -d chrome
-flutter test           # 14 testes (serviço HTTP + telas), sem internet
+flutter test           # 16 testes (serviço HTTP + telas), sem internet
 ```
 
 ## ⚠ A JSONPlaceholder não grava nada
@@ -24,6 +24,12 @@ flutter test           # 14 testes (serviço HTTP + telas), sem internet
 atualiza depois de cada operação, para o CRUD funcionar visualmente. Detalhes que isso gera:
 - `POST` devolve sempre `id = 101`; o app gera o próximo id livre localmente para não repetir.
 - Posts criados por você (id fora de 1–100) não existem na API, então o detalhe mostra só os dados locais.
+
+## Melhorias
+- Traz só **20 posts** (`?_limit=20`) em vez dos 100 — mais rápido e leve.
+- Filtro por **autor** (chips) + contador "N de 20", além da busca por texto.
+- **Desfazer** depois de excluir.
+- Cores por autor, validação no formulário, estados de carregando/erro com "Tentar novamente".
 
 ## Estrutura
 ```

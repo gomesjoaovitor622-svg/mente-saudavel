@@ -21,6 +21,7 @@ void main() {
     final posts = await service.listar();
     expect(visto.method, 'GET');
     expect(visto.url.path, '/posts');
+    expect(visto.url.queryParameters['_limit'], '20'); // só 20 posts, não os 100
     expect(posts.map((p) => p.title), ['a', 'b']);
     expect(posts.last.userId, 2);
   });
@@ -31,8 +32,9 @@ void main() {
       url = req.url;
       return _json([]);
     }));
-    await service.listar(userId: 3);
+    await service.listar(userId: 3, limite: 5);
     expect(url.queryParameters['userId'], '3');
+    expect(url.queryParameters['_limit'], '5');
   });
 
   test('buscar: GET /posts/{id}', () async {

@@ -24,6 +24,7 @@ class _PostsScreenState extends State<PostsScreen> {
   bool _carregando = true;
   String? _erro;
   String _busca = '';
+  int? _autor; // null = todos os autores
 
   @override
   void initState() {
@@ -111,8 +112,25 @@ class _PostsScreenState extends State<PostsScreen> {
     try {
       await widget.service.excluir(post.id!);
       if (!mounted) return;
+      final posicao = _posts.indexWhere((p) => p.id == post.id);
       setState(() => _posts = _posts.where((p) => p.id != post.id).toList());
-      _aviso('Post excluído (a API simula: nada é apagado no servidor).');
+      ScaffoldMessenger.of(context)
+        ..hideCurrentSnackBar()
+        ..showSnackBar(
+          SnackBar(
+            content: const Text('Post excluído (a API simula: nada é apagado no servidor).'),
+            action: SnackBarAction(
+              label: 'Desfazer',
+              onPressed: () {
+                if (!mounted) return;
+                final lista = [..._posts];
+                final destino = posicao < 0 ? 0 : (posicao > lista.length ? lista.length : posicao);
+                lista.insert(destino, post);
+                setState(() => _posts = lista);
+              },
+            ),
+          ),
+        );
     } on ApiException catch (e) {
       if (!mounted) return;
       _aviso(e.mensagem, erro: true);
@@ -129,9 +147,59 @@ class _PostsScreenState extends State<PostsScreen> {
 
   List<Post> get _filtrados {
     final termo = _busca.trim().toLowerCase();
-    if (termo.isEmpty) return _posts;
-    return _posts.where((p) => p.title.toLowerCase().contains(termo) || p.body.toLowerCase().contains(termo)).toList();
+    return _posts.where((p) {
+      if (_autor != null && p.userId != _autor) return false;
+      if (termo.isEmpty) return true;
+      return p.title.toLowerCase().contains(termo) || p.body.toLowerCase().contains(termo);
+    }).toList();
   }
+
+  /// Autores presentes na lista atual (para os chips de filtro).
+  List<int> get _autores => (_posts.map((p) => p.userId).toSet().toList()..sort());
+
+  Widget _filtros() {
+    if (_posts.isEmpty) return const SizedBox.shrink();
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(12, 4, 12, 0),
+      child: Row(
+        children: [
+          Expanded(
+            child: SingleChildScrollView(
+              scrollDirection: Axis.horizontal,
+              child: Row(
+                children: [
+                  Padding(
+                    padding: const EdgeInsets.only(right: 8),
+                    child: ChoiceChip(
+                      key: const Key('autor-todos'),
+                      label: const Text('Todos'),
+                      selected: _autor == null,
+                      onSelected: (_) => setState(() => _autor = null),
+                    ),
+                  ),
+                  ..._autores.map(
+                    (id) => Padding(
+                      padding: const EdgeInsets.only(right: 8),
+                      child: ChoiceChip(
+                        key: Key('autor-$id'),
+                        label: Text('Autor $id'),
+                        selected: _autor == id,
+                        onSelected: (_) => setState(() => _autor = id),
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+          Text('${_filtrados.length} de ${_posts.length}', key: const Key('contador')),
+        ],
+      ),
+    );
+  }
+
+  static const List<Color> _cores = [Colors.indigo, Colors.teal, Colors.orange, Colors.pink, Colors.green];
+  Color _corDoAutor(int userId) => _cores[userId % _cores.length];
 
   Widget _corpo() {
     if (_carregando) return const Center(child: CircularProgressIndicator());
@@ -166,7 +234,11 @@ class _PostsScreenState extends State<PostsScreen> {
             margin: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
             child: ListTile(
               onTap: () => _abrir(post),
-              leading: CircleAvatar(child: Text('${post.id}')),
+              leading: CircleAvatar(
+                backgroundColor: _corDoAutor(post.userId),
+                foregroundColor: Colors.white,
+                child: Text('${post.id}'),
+              ),
               title: Text(post.title, maxLines: 2, overflow: TextOverflow.ellipsis),
               subtitle: Text(post.body.replaceAll('\n', ' '), maxLines: 2, overflow: TextOverflow.ellipsis),
               trailing: PopupMenuButton<_Acao>(
@@ -207,6 +279,7 @@ class _PostsScreenState extends State<PostsScreen> {
               ),
             ),
           ),
+          _filtros(),
           Expanded(child: _corpo()),
         ],
       ),

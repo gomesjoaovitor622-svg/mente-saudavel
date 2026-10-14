@@ -13,6 +13,7 @@ PostService _apiFalsa() {
         http.Response(jsonEncode(corpo), status, headers: {'content-type': 'application/json; charset=utf-8'});
     final caminho = req.url.path;
     if (req.method == 'GET' && caminho == '/posts') {
+      expect(req.url.queryParameters['_limit'], '20');
       return ok([
         {'userId': 1, 'id': 1, 'title': 'Primeiro post', 'body': 'texto 1'},
         {'userId': 1, 'id': 2, 'title': 'Segundo post', 'body': 'texto 2'},
@@ -93,5 +94,33 @@ void main() {
 
     expect(find.text('Segundo post'), findsNothing);
     expect(find.text('Primeiro post'), findsOneWidget);
+  });
+
+  testWidgets('FILTRO: chips por autor e contador', (tester) async {
+    await _abrirApp(tester);
+    expect(find.text('3 de 3'), findsOneWidget);
+    await tester.tap(find.byKey(const Key('autor-2')));
+    await tester.pumpAndSettle();
+    expect(find.text('Terceiro post'), findsOneWidget);
+    expect(find.text('Primeiro post'), findsNothing);
+    expect(find.text('1 de 3'), findsOneWidget);
+    await tester.tap(find.byKey(const Key('autor-todos')));
+    await tester.pumpAndSettle();
+    expect(find.text('Primeiro post'), findsOneWidget);
+  });
+
+  testWidgets('DELETE: "Desfazer" devolve o post à lista', (tester) async {
+    await _abrirApp(tester);
+    await tester.tap(find.byKey(const Key('menu-2')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Excluir'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const Key('confirmar-exclusao')));
+    await tester.pumpAndSettle();
+    expect(find.text('Segundo post'), findsNothing);
+
+    await tester.tap(find.text('Desfazer'));
+    await tester.pumpAndSettle();
+    expect(find.text('Segundo post'), findsOneWidget);
   });
 }

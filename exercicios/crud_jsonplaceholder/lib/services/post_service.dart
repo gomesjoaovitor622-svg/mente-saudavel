@@ -24,6 +24,7 @@ class ApiException implements Exception {
 /// DELETE, mas NÃO grava nada no servidor (só o GET devolve os dados originais).
 class PostService {
   static const String urlPadrao = 'https://jsonplaceholder.typicode.com';
+  static const int limitePadrao = 20;
   static const Duration _limite = Duration(seconds: 15);
   static const Map<String, String> _cabecalhos = {'Content-Type': 'application/json; charset=UTF-8'};
 
@@ -60,11 +61,11 @@ class PostService {
   }
 
   // ---------------------------------------------------------------- READ
-  /// GET /posts  (opcional: ?userId=1)
-  Future<List<Post>> listar({int? userId}) async {
-    final dados = await _enviar(
-      () => _client.get(_uri('/posts', userId == null ? null : {'userId': '$userId'})),
-    );
+  /// GET /posts?_limit=20  (a API tem 100 posts; por padrão trazemos só os 20 primeiros).
+  /// Opcional: filtrar por autor com `?userId=`.
+  Future<List<Post>> listar({int limite = limitePadrao, int? userId}) async {
+    final consulta = <String, String>{'_limit': '$limite', if (userId != null) 'userId': '$userId'};
+    final dados = await _enviar(() => _client.get(_uri('/posts', consulta)));
     return (dados as List<dynamic>).map((e) => Post.fromJson(e as Map<String, dynamic>)).toList();
   }
 
