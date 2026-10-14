@@ -22,6 +22,7 @@ class Settings:
     demo_seed: bool = False
     password_min: int = 8
     login_max_attempts: int = 10  # por minuto, por e-mail + IP
+    signup_max_attempts: int = 10  # cadastros por minuto, por IP
 
     @property
     def is_dev(self) -> bool:
@@ -54,4 +55,5 @@ def load_settings() -> Settings:
         cors_origins=origins,
         demo_seed=_bool("DEMO_SEED", False),
         password_min=int(os.environ.get("PASSWORD_MIN", "8")),
+        signup_max_attempts=int(os.environ.get("SIGNUP_MAX_ATTEMPTS", "10")),
     )

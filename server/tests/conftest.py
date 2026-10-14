@@ -28,7 +28,15 @@ def client() -> Iterator[TestClient]:
         def _fk(dbapi_conn, _r):  # type: ignore[no-untyped-def]
             dbapi_conn.execute("PRAGMA foreign_keys=ON")
 
-    cfg = Settings(env="development", database_url="sqlite://", jwt_secret="x" * 40, cors_origins=("https://site.exemplo",), password_min=8, login_max_attempts=5)
+    cfg = Settings(
+        env="development",
+        database_url="sqlite://",
+        jwt_secret="x" * 40,
+        cors_origins=("https://site.exemplo",),
+        password_min=8,
+        login_max_attempts=5,
+        signup_max_attempts=1000,
+    )
     with TestClient(create_app(cfg, engine)) as c:
         yield c
 

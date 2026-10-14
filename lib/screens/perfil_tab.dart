@@ -1,8 +1,11 @@
+import 'dart:convert';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:mente_saudavel/models/usuario.dart';
 import 'package:mente_saudavel/screens/banco_screen.dart';
 import 'package:mente_saudavel/utils/build_flags.dart';
 import 'package:mente_saudavel/services/api_service.dart';
+import 'package:mente_saudavel/services/api_client.dart';
 import 'package:mente_saudavel/services/auth_service.dart';
 import 'package:mente_saudavel/utils/app_exception.dart';
 import 'package:mente_saudavel/utils/validators.dart';
@@ -101,6 +104,41 @@ class _PerfilTabState extends State<PerfilTab> {
     );
     if (ok == true && mounted) {
       mostrarMensagem(context, 'Senha alterada com sucesso!');
+    }
+  }
+
+  /// LGPD (portabilidade): mostra todos os dados da conta em JSON, com botão de copiar.
+  Future<void> _exportarDados() async {
+    try {
+      final dados = await ApiClient.get('/auth/eu/exportar');
+      final texto = const JsonEncoder.withIndent('  ').convert(dados);
+      if (!mounted) return;
+      await showDialog<void>(
+        context: context,
+        builder: (ctx) => AlertDialog(
+          title: const Text('Meus dados'),
+          content: SizedBox(
+            width: 480,
+            child: SingleChildScrollView(child: SelectableText(texto, style: const TextStyle(fontSize: 12))),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () async {
+                await Clipboard.setData(ClipboardData(text: texto));
+                if (ctx.mounted) mostrarMensagem(ctx, 'Dados copiados.');
+              },
+              child: const Text('Copiar'),
+            ),
+            FilledButton(onPressed: () => Navigator.pop(ctx), child: const Text('Fechar')),
+          ],
+        ),
+      );
+    } on AppException catch (e) {
+      if (!mounted) return;
+      mostrarMensagem(context, e.mensagem, erro: true);
+    } catch (_) {
+      if (!mounted) return;
+      mostrarMensagem(context, 'Não foi possível exportar os dados.', erro: true);
     }
   }
 
@@ -246,6 +284,14 @@ class _PerfilTabState extends State<PerfilTab> {
                 ),
                 icon: const Icon(Icons.storage_outlined),
                 label: const Text('Ver banco de dados (SQLite)'),
+              ),
+              const SizedBox(height: 8),
+            ],
+            if (usaServidor) ...[
+              OutlinedButton.icon(
+                onPressed: _exportarDados,
+                icon: const Icon(Icons.download_outlined),
+                label: const Text('Exportar meus dados'),
               ),
               const SizedBox(height: 8),
             ],

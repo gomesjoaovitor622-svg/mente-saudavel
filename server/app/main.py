@@ -99,6 +99,7 @@ def create_app(settings: Settings | None = None, engine: Engine | None = None) -
     Base.metadata.create_all(eng)
     factory: sessionmaker[Session] = make_session_factory(eng)
     limite = _LimiteLogin(cfg.login_max_attempts)
+    limite_cadastro = _LimiteLogin(cfg.signup_max_attempts)  # por IP: evita criação em massa de contas
 
     app = FastAPI(
         title="Mente Saudável API", version="1.0.0", docs_url="/docs" if cfg.is_dev else None, redoc_url=None, openapi_url="/openapi.json" if cfg.is_dev else None
@@ -173,7 +174,8 @@ def create_app(settings: Settings | None = None, engine: Engine | None = None) -
         return {"token": criar_token(user.id, cfg.jwt_secret, cfg.jwt_ttl_hours), "usuario": _usuario_out(user)}
 
     @app.post("/auth/cadastro", status_code=201)
-    def cadastro(body: schemas.CadastroIn, db: Db) -> dict[str, Any]:
+    def cadastro(body: schemas.CadastroIn, request: Request, db: Db) -> dict[str, Any]:
+        limite_cadastro.checar(request.client.host if request.client else "?")
         if len(body.senha) < cfg.password_min:
             raise HTTPException(422, f"A senha deve ter pelo menos {cfg.password_min} caracteres.")
         if body.perfil == "profissional" and not (body.registro or "").strip():
@@ -213,6 +215,28 @@ def create_app(settings: Settings | None = None, engine: Engine | None = None) -
     @app.get("/auth/eu")
     def eu(user: Eu) -> dict[str, Any]:
         return _usuario_out(user)
+
+    @app.get("/auth/eu/exportar")
+    def exportar_meus_dados(user: Eu, db: Db) -> dict[str, Any]:
+        """Portabilidade (LGPD, art. 18): todos os dados da própria pessoa em um JSON."""
+        souprof = user.perfil == "profissional"
+        coluna = Sessao.profissional_id if souprof else Sessao.paciente_id
+        sessoes = db.scalars(select(Sessao).where(coluna == user.id).order_by(Sessao.data_hora.asc()))
+        dados: dict[str, Any] = {
+            "exportado_em": datetime.now().replace(microsecond=0).isoformat(),
+            "usuario": _usuario_out(user),
+            # O profissional recebe as próprias anotações; o paciente nunca recebe as do profissional.
+            "sessoes": [_sessao_out(s, ver_anotacoes=souprof) for s in sessoes],
+        }
+        if souprof:
+            recebidas = db.scalars(select(Avaliacao).where(Avaliacao.profissional_id == user.id).order_by(Avaliacao.criado_em.asc()))
+            dados["avaliacoes_recebidas"] = [_avaliacao_out(a) for a in recebidas]
+        else:
+            feitas = db.scalars(select(Avaliacao).where(Avaliacao.paciente_id == user.id).order_by(Avaliacao.criado_em.asc()))
+            dados["avaliacoes_feitas"] = [_avaliacao_out(a) for a in feitas]
+            humor = db.scalars(select(Humor).where(Humor.usuario_id == user.id).order_by(Humor.data_hora.asc()))
+            dados["humor"] = [_humor_out(h) for h in humor]
+        return dados
 
     @app.patch("/auth/eu")
     def atualizar_eu(body: schemas.PerfilIn, user: Eu, db: Db) -> dict[str, Any]:

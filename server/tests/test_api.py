@@ -165,3 +165,37 @@ def test_exclusao_de_conta_apaga_em_cascata(client):
 def test_cabecalhos_de_seguranca(client):
     h = client.get("/health").headers
     assert h["x-content-type-options"] == "nosniff" and h["cache-control"] == "no-store"
+
+
+def test_cadastro_tem_limite_por_ip():
+    from sqlalchemy import create_engine
+    from sqlalchemy.pool import StaticPool
+
+    from app.config import Settings
+    from app.main import create_app
+
+    engine = create_engine("sqlite://", connect_args={"check_same_thread": False}, poolclass=StaticPool)
+    cfg = Settings(env="development", database_url="sqlite://", jwt_secret="x" * 40, signup_max_attempts=3)
+    from fastapi.testclient import TestClient
+
+    with TestClient(create_app(cfg, engine)) as c:
+        codigos = [c.post("/auth/cadastro", json={"nome": "Ana", "email": f"a{i}@x.com", "senha": "senha-forte-1", "perfil": "paciente"}).status_code for i in range(5)]
+    assert codigos == [201, 201, 201, 429, 429]
+
+
+def test_exportar_meus_dados_paciente_nao_traz_anotacoes_do_profissional(client):
+    prof = cadastrar(client, "dra@x.com", "profissional")
+    pac = cadastrar(client, "p@x.com")
+    s = client.post("/sessoes", headers=pac["h"], json={"profissional_id": prof["id"], "data_hora": futuro(), "modalidade": "Online"}).json()
+    client.patch(f"/sessoes/{s['id']}", headers=prof["h"], json={"anotacoes": "SIGILO CLINICO"})
+    client.post("/humor", headers=pac["h"], json={"nivel": 4, "nota": "ok"})
+
+    meus = client.get("/auth/eu/exportar", headers=pac["h"])
+    assert meus.status_code == 200
+    d = meus.json()
+    assert d["usuario"]["email"] == "p@x.com" and len(d["sessoes"]) == 1 and len(d["humor"]) == 1
+    assert "SIGILO CLINICO" not in meus.text and "senha" not in meus.text and "scrypt" not in meus.text
+
+    do_prof = client.get("/auth/eu/exportar", headers=prof["h"]).json()
+    assert do_prof["sessoes"][0]["anotacoes"] == "SIGILO CLINICO" and "humor" not in do_prof
+    assert client.get("/auth/eu/exportar").status_code == 401
