@@ -42,25 +42,34 @@ def ver(page: Page, texto: str, timeout: int = TIMEOUT) -> None:
 
 def tocar(page: Page, rotulo: str) -> None:
     """Clica num botão/aba/chip pelo rótulo (aceita parte do texto)."""
-    achados = (
+    candidatos = (
         page.get_by_role("button", name=rotulo)
         .or_(page.get_by_role("tab", name=rotulo))
         .or_(page.get_by_role("radio", name=rotulo))
-        .or_(page.get_by_role("checkbox", name=rotulo))
+        .or_(page.get_by_role("checkbox", name=rotulo)),
+        page.locator(f'[aria-label*="{rotulo}"]'),
+        page.get_by_text(rotulo, exact=True),
+        page.locator(f'flt-semantics:has-text("{rotulo}")'),
     )
-    if achados.count() == 0:
-        achados = page.locator(f'[aria-label*="{rotulo}"]')
-    alvo = achados.first
+    # Espera (até o limite) por algum candidato existir; o Flutter troca de tela com animação.
+    fim = time.time() + TIMEOUT / 1000
+    alvo = candidatos[0].first
+    while time.time() < fim:
+        achado = next((c for c in candidatos if c.count() > 0), None)
+        if achado is not None:
+            alvo = achado.first
+            break
+        page.wait_for_timeout(250)
     try:
         alvo.click(timeout=8_000)
     except PWTimeout:
         # Botões do Flutter às vezes ficam "instáveis" durante a animação de troca de tela:
         # tenta de novo forçando o clique e, por último, disparando o evento direto.
-        print(f"  (clique normal em {rotulo!r} falhou; {achados.count()} elemento(s) — forçando)", flush=True)
+        print(f"  (clique normal em {rotulo!r} falhou — forçando)", flush=True)
         try:
             alvo.click(timeout=8_000, force=True)
         except PWTimeout:
-            alvo.dispatch_event("click")
+            alvo.dispatch_event("click", timeout=8_000)
 
 
 def digitar(page: Page, rotulo: str, valor: str) -> None:
@@ -298,7 +307,8 @@ def main() -> int:
             except (PWTimeout, AssertionError) as exc:
                 page.screenshot(path=str(SHOTS / f"falha-{nome}.png"))
                 arvore = page.evaluate("document.querySelector('flt-semantics-host')?.innerText || '(sem árvore de acessibilidade)'")
-                print(f"::error title=E2E falhou no fluxo {nome}::{str(exc).splitlines()[0][:300]} | etapas ok: {len(etapas)} | tela: {str(arvore)[:600]!r} | console: {erros_console[:6]!r}")
+                html = page.evaluate("(document.querySelector('flt-semantics-host')?.innerHTML || '').slice(0, 700)")
+                print(f"::error title=E2E falhou no fluxo {nome}::{str(exc).splitlines()[0][:300]} | etapas ok: {len(etapas)} | tela: {str(arvore)[:600]!r} | html: {html!r} | console: {erros_console[:6]!r}")
                 falhas.append(nome)
             finally:
                 ctx.close()
