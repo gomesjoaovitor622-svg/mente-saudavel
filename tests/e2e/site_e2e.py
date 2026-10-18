@@ -42,20 +42,21 @@ def ver(page: Page, texto: str, timeout: int = TIMEOUT) -> None:
 
 def tocar(page: Page, rotulo: str) -> None:
     """Clica num botão/aba/chip pelo rótulo (aceita parte do texto)."""
-    candidatos = (
+    por_papel = (
         page.get_by_role("button", name=rotulo)
         .or_(page.get_by_role("tab", name=rotulo))
         .or_(page.get_by_role("radio", name=rotulo))
-        .or_(page.get_by_role("checkbox", name=rotulo)),
-        page.locator(f'[aria-label*="{rotulo}"]'),
-        page.get_by_text(rotulo, exact=True),
-        page.locator(f'flt-semantics:has-text("{rotulo}")'),
+        .or_(page.get_by_role("checkbox", name=rotulo))
     )
-    # Espera (até o limite) por algum candidato existir; o Flutter troca de tela com animação.
+    por_rotulo = page.locator(f'[aria-label*="{rotulo}"]')
+    texto_exato = page.get_by_text(rotulo, exact=True)  # só folhas: nunca um contêiner inteiro
+    # O Flutter troca de tela com animação: espera o botão aparecer (papel/rótulo) antes de cair no texto.
     fim = time.time() + TIMEOUT / 1000
-    alvo = candidatos[0].first
+    alvo = por_papel.first
     while time.time() < fim:
-        achado = next((c for c in candidatos if c.count() > 0), None)
+        achado = por_papel if por_papel.count() > 0 else (por_rotulo if por_rotulo.count() > 0 else None)
+        if achado is None and time.time() > fim - 8 and texto_exato.count() > 0:
+            achado = texto_exato
         if achado is not None:
             alvo = achado.first
             break
@@ -246,8 +247,8 @@ def fluxo_cadastro_novo(page: Page) -> None:
     ver(page, "Buscar")
     ok("cadastro de nova conta de paciente entra no app")
     tocar(page, "Perfil")
-    ver(page, "Pessoa de Teste")
-    ok("perfil mostra o nome cadastrado")
+    ver(page, email)  # o nome fica dentro de um campo de texto (sem rótulo); o e-mail aparece como texto
+    ok("perfil mostra os dados da conta cadastrada")
     tocar(page, "Excluir minha conta")
     ver(page, "não pode ser desfeita")
     page.get_by_role("button", name="Excluir conta").last.click(timeout=TIMEOUT)
