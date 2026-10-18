@@ -62,3 +62,4 @@ O site (Flutter web) e a API ficam no **mesmo domínio**: o site em `/`, a API e
 5. **Sem e-mail** (recuperar senha, confirmar cadastro) e **sem moderação** de avaliações.
 6. **Imagens Docker** (`python`, `postgres`, `caddy`) usam tags, não digests. Em produção, fixe por digest e atualize regularmente.
 7. **Videochamada**: o link Jitsi é derivado do ID da sessão (qualquer um com o link entra). Para sigilo clínico, use sala com senha/lobby.
+8. **Fontes do Google**: o Flutter web baixa fontes de reserva (emoji e caracteres especiais) de `fonts.gstatic.com`. Isso expõe o IP do visitante ao Google (relevante para a LGPD). Correção futura: empacotar as fontes no app (`flutter: fonts:`) e compilar com as fontes locais. O teste de implantação lista os domínios externos como aviso.
