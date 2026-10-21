@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
-import 'package:mente_saudavel/database/sessao_dao.dart';
+import 'package:mente_saudavel/app/dependencias.dart';
+import 'package:mente_saudavel/domain/repositories/sessao_repository.dart';
 import 'package:mente_saudavel/models/sessao.dart';
 import 'package:mente_saudavel/screens/profissional/paciente_detalhe_screen.dart';
 import 'package:mente_saudavel/services/auth_service.dart';
@@ -15,7 +16,7 @@ class PacientesTab extends StatefulWidget {
 }
 
 class _PacientesTabState extends State<PacientesTab> {
-  final SessaoDao _dao = SessaoDao();
+  final SessaoRepository _dao = Dependencias.instancia.sessoes;
   final TextEditingController _busca = TextEditingController();
 
   List<PacienteResumo> _pacientes = [];

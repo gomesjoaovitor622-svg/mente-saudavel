@@ -23,6 +23,7 @@ class Settings:
     password_min: int = 8
     login_max_attempts: int = 10  # por minuto, por e-mail + IP
     signup_max_attempts: int = 10  # cadastros por minuto, por IP
+    cookie_secure: bool = True  # cookie de sessão só por HTTPS (desligue apenas em desenvolvimento local)
 
     @property
     def is_dev(self) -> bool:
@@ -56,4 +57,5 @@ def load_settings() -> Settings:
         demo_seed=_bool("DEMO_SEED", False),
         password_min=int(os.environ.get("PASSWORD_MIN", "8")),
         signup_max_attempts=int(os.environ.get("SIGNUP_MAX_ATTEMPTS", "10")),
+        cookie_secure=_bool("COOKIE_SECURE", env != "development"),
     )

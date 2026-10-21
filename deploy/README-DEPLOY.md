@@ -58,7 +58,7 @@ O site (Flutter web) e a API ficam no **mesmo domínio**: o site em `/`, a API e
 1. **Rate limit de login em memória** (por processo): serve para 1 instância. Com várias réplicas, use Redis ou limite no proxy.
 2. **Cadastro de profissional é aberto**: qualquer pessoa pode informar um CRP. Falta verificar o CRP (manual ou integração com o conselho).
 3. **LGPD**: dados de saúde mental são *dados sensíveis*. Antes de operar com pacientes reais: política de privacidade, termo de consentimento, DPO/encarregado, criptografia em repouso (disco do servidor/volume do banco), retenção e exclusão. A exclusão de conta já apaga tudo em cascata.
-4. **Token no navegador** (localStorage): protege contra uso casual, mas fica exposto se houver XSS. Próximo passo: cookie `HttpOnly` + CSP estrita.
+4. **Sessão no navegador**: agora é um cookie `HttpOnly` + `Secure` + `SameSite=Strict` (o JavaScript não lê o token) e as ações exigem o cabeçalho `X-Requested-With` (anti-CSRF). Requer que site e API estejam no MESMO domínio (como no Caddy deste projeto). Falta ainda uma CSP estrita (Content-Security-Policy), que precisa ser testada com o Flutter web antes de ativar. No celular o token fica no Android Keystore / iOS Keychain (`flutter_secure_storage`).
 5. **Sem e-mail** (recuperar senha, confirmar cadastro) e **sem moderação** de avaliações.
 6. **Imagens Docker** (`python`, `postgres`, `caddy`) usam tags, não digests. Em produção, fixe por digest e atualize regularmente.
 7. **Videochamada**: o link Jitsi é derivado do ID da sessão (qualquer um com o link entra). Para sigilo clínico, use sala com senha/lobby.

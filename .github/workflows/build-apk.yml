@@ -69,6 +69,13 @@ jobs:
           flutter create --platforms=android --project-name mente_saudavel --org br.edu.ifro.mentesaudavel "$RUNNER_TEMP/gerado"
           cp -r "$RUNNER_TEMP/gerado/android" ./android
 
+      - name: minSdk 23 (exigido pelo armazenamento seguro do token)
+        run: |
+          gradle=$(find android/app -maxdepth 1 -name 'build.gradle*' | head -1)
+          sed -i -E 's/minSdk(Version)?([ =]+)flutter\.minSdkVersion/minSdk\1\2 23/' "$gradle"
+          grep -E "minSdk" "$gradle"
+          grep -qE "minSdk(Version)?[ =]+ ?23" "$gradle" || { echo "::error::não consegui ajustar o minSdk"; exit 1; }
+
       - name: Permissão de internet e nome do app
         run: |
           MANIFEST=android/app/src/main/AndroidManifest.xml

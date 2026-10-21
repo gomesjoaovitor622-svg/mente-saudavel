@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
-import 'package:mente_saudavel/database/sessao_dao.dart';
+import 'package:mente_saudavel/app/dependencias.dart';
+import 'package:mente_saudavel/domain/repositories/sessao_repository.dart';
 import 'package:mente_saudavel/models/sessao.dart';
 import 'package:mente_saudavel/models/usuario.dart';
 import 'package:mente_saudavel/screens/paciente/agendar_sessao_screen.dart';
@@ -28,7 +29,7 @@ class PacienteInicioTab extends StatefulWidget {
 }
 
 class _PacienteInicioTabState extends State<PacienteInicioTab> {
-  final SessaoDao _dao = SessaoDao();
+  final SessaoRepository _dao = Dependencias.instancia.sessoes;
 
   Sessao? _proxima;
   int _concluidas = 0;

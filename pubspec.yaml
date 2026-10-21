@@ -15,12 +15,14 @@ dependencies:
   path: ^1.9.1         # monta o caminho do arquivo do banco
   crypto: ^3.0.6       # hash SHA-256 das senhas
   http: ^1.2.2         # chamadas às APIs (BrasilAPI, ViaCEP e o servidor do app)
-  shared_preferences: ^2.3.2   # guarda o token de login no modo servidor
+  flutter_secure_storage: ^9.2.4   # token de login no Keystore/Keychain (celular)
+  shared_preferences: ^2.3.2       # só para apagar o token antigo em texto puro (migração)
 
 dev_dependencies:
   flutter_test:
     sdk: flutter
   flutter_lints: any
+  sqflite_common_ffi: ^2.3.4   # SQLite de verdade nos testes (sem celular)
 
 flutter:
   uses-material-design: true

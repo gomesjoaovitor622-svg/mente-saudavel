@@ -43,6 +43,7 @@ class Usuario {
       'registro': registro,
       'especialidade': especialidade,
       'endereco': endereco,
+      'valor_sessao_centavos': valorSessaoCentavos,
       'criado_em': criadoEm,
     };
   }

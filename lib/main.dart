@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_localizations/flutter_localizations.dart';
+import 'package:mente_saudavel/app/dependencias.dart';
 import 'package:mente_saudavel/database/database_factory_setup.dart';
 import 'package:mente_saudavel/models/usuario.dart';
 import 'package:mente_saudavel/screens/login_screen.dart';
@@ -13,6 +14,8 @@ Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
   // Celular: não faz nada. Web: ativa o SQLite do navegador.
   await configurarBanco();
+  // Composition root: escolhe UMA vez entre SQLite local e API.
+  Dependencias.configurar(Dependencias.producao());
   runApp(const MenteSaudavelApp());
 }
 

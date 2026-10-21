@@ -2,6 +2,9 @@ from __future__ import annotations
 
 from datetime import datetime, timedelta
 
+import pytest
+from fastapi.testclient import TestClient
+
 from tests.conftest import cadastrar, futuro
 
 
@@ -259,3 +262,155 @@ def test_migracao_adiciona_colunas_em_banco_antigo(tmp_path):
         assert c.exec_driver_sql("SELECT valor_centavos FROM sessoes").scalar() == 0
         assert c.exec_driver_sql("SELECT nome FROM usuarios").scalar() == "Ana"
     engine.dispose()
+
+
+# ---------------------------------------------------------------- anti-corrida (índice único)
+def _agendar(client, pac, pro_id, quando):
+    return client.post("/sessoes", headers=pac["h"], json={"profissional_id": pro_id, "data_hora": quando, "modalidade": "Online"})
+
+
+def test_banco_recusa_sessao_ativa_duplicada_mas_aceita_cancelada(client):
+    """O índice único parcial vale no banco, mesmo sem passar pela checagem da API."""
+    import pytest
+    from sqlalchemy.exc import IntegrityError
+
+    from app.models import Sessao
+
+    pro = cadastrar(client, "pro-idx@x.com", "profissional")
+    pac = cadastrar(client, "pac-idx@x.com")
+    quando = datetime.fromisoformat(futuro())
+    factory = client.app.state.session_factory
+
+    def nova(status: str = "agendada") -> Sessao:
+        return Sessao(paciente_id=pac["id"], profissional_id=pro["id"], data_hora=quando, modalidade="Online", status=status)
+
+    with factory() as db:
+        db.add(nova())
+        db.commit()
+    with factory() as db:
+        db.add(nova())
+        with pytest.raises(IntegrityError):
+            db.commit()
+    with factory() as db:  # cancelada não ocupa horário
+        db.add(nova("cancelada"))
+        db.commit()
+
+
+def test_corrida_no_agendamento_vira_409(client):
+    """Simula a corrida: um rival grava o mesmo horário DEPOIS da checagem e ANTES do INSERT."""
+    from sqlalchemy import event, insert
+
+    from app.models import Sessao
+
+    pro = cadastrar(client, "pro-race@x.com", "profissional")
+    pac = cadastrar(client, "pac-race@x.com")
+    rival = cadastrar(client, "rival-race@x.com")
+    quando = futuro()
+    engine = client.app.state.session_factory.kw["bind"]
+    estado = {"ativo": True}
+
+    @event.listens_for(engine, "before_cursor_execute")
+    def _rival_grava_primeiro(conn, cursor, statement, parameters, context, executemany):  # type: ignore[no-untyped-def]
+        if estado["ativo"] and statement.lstrip().upper().startswith("INSERT INTO SESSOES"):
+            estado["ativo"] = False
+            conn.execute(  # mesma conexão: o INSERT real que vem a seguir viola o índice único
+                insert(Sessao.__table__).values(
+                    paciente_id=rival["id"], profissional_id=pro["id"], data_hora=datetime.fromisoformat(quando), modalidade="Online", status="agendada", valor_centavos=0
+                )
+            )
+
+    try:
+        r = _agendar(client, pac, pro["id"], quando)
+    finally:
+        event.remove(engine, "before_cursor_execute", _rival_grava_primeiro)
+    assert r.status_code == 409, r.text
+    assert "horário" in r.json()["detail"]
+    # só a sessão do rival existe; a do paciente não foi gravada
+    assert client.get("/sessoes", headers=pac["h"]).json() == []
+
+
+def test_remarcar_para_horario_ocupado_continua_409(client):
+    pro = cadastrar(client, "pro-rem@x.com", "profissional")
+    a = cadastrar(client, "pac-rem-a@x.com")
+    b = cadastrar(client, "pac-rem-b@x.com")
+    assert _agendar(client, a, pro["id"], futuro(48, 9)).status_code == 201
+    sb = _agendar(client, b, pro["id"], futuro(48, 11)).json()["id"]
+    r = client.patch(f"/sessoes/{sb}", headers=b["h"], json={"data_hora": futuro(48, 9)})
+    assert r.status_code == 409
+
+
+def test_cancelar_libera_o_horario(client):
+    pro = cadastrar(client, "pro-lib@x.com", "profissional")
+    a = cadastrar(client, "pac-lib-a@x.com")
+    b = cadastrar(client, "pac-lib-b@x.com")
+    sid = _agendar(client, a, pro["id"], futuro()).json()["id"]
+    assert _agendar(client, b, pro["id"], futuro()).status_code == 409
+    assert client.patch(f"/sessoes/{sid}", headers=a["h"], json={"status": "cancelada"}).status_code == 200
+    assert _agendar(client, b, pro["id"], futuro()).status_code == 201
+
+
+def test_migracao_cria_indices_em_banco_antigo_e_avisa_duplicadas(tmp_path):
+    from sqlalchemy import create_engine, text
+
+    from app.db import garantir_indices
+
+    eng = create_engine(f"sqlite:///{tmp_path / 'velho.db'}")
+    with eng.begin() as c:
+        c.execute(text("CREATE TABLE sessoes (id INTEGER PRIMARY KEY, paciente_id INT, profissional_id INT, data_hora DATETIME, status TEXT)"))
+        c.execute(text("INSERT INTO sessoes VALUES (1,1,9,'2030-01-01 10:00:00','agendada'),(2,2,9,'2030-01-01 10:00:00','agendada')"))
+    assert garantir_indices(eng) == ["uq_sessao_prof_horario"]  # duplicada: não cria, não derruba o servidor
+    with eng.begin() as c:
+        c.execute(text("UPDATE sessoes SET status='cancelada' WHERE id=2"))
+    assert garantir_indices(eng) == []
+    assert garantir_indices(eng) == []  # idempotente
+
+
+# ---------------------------------------------------------------- sessão web: cookie HttpOnly
+@pytest.fixture()
+def web():
+    """Cliente que guarda cookies, como um navegador (cookie_secure=False só porque o teste usa http)."""
+    from sqlalchemy import create_engine
+    from sqlalchemy.pool import StaticPool
+
+    from app.config import Settings
+    from app.main import create_app
+
+    eng = create_engine("sqlite://", connect_args={"check_same_thread": False}, poolclass=StaticPool)
+    cfg = Settings(env="development", database_url="sqlite://", jwt_secret="y" * 40, cookie_secure=False, signup_max_attempts=1000)
+    with TestClient(create_app(cfg, eng)) as c:
+        yield c
+
+
+def _cadastro_web(c, email="web@x.com"):
+    return c.post("/auth/cadastro", json={"nome": "Web", "email": email, "senha": "senha-forte-1", "perfil": "paciente"})
+
+
+def test_cookie_de_sessao_e_httponly_samesite_strict(web):
+    r = _cadastro_web(web)
+    assert r.status_code == 201
+    cookie = r.headers["set-cookie"].lower()
+    assert "ms_sessao=" in cookie and "httponly" in cookie and "samesite=strict" in cookie and "path=/" in cookie
+
+
+def test_cookie_autentica_leitura_sem_cabecalho_authorization(web):
+    _cadastro_web(web)
+    assert web.get("/auth/eu").json()["email"] == "web@x.com"
+
+
+def test_cookie_exige_cabecalho_csrf_para_alterar_dados(web):
+    _cadastro_web(web)
+    assert web.patch("/auth/eu", json={"nome": "Novo"}).status_code == 403  # sem X-Requested-With
+    ok = web.patch("/auth/eu", json={"nome": "Novo"}, headers={"X-Requested-With": "mente-saudavel"})
+    assert ok.status_code == 200 and ok.json()["nome"] == "Novo"
+
+
+def test_sair_apaga_o_cookie(web):
+    _cadastro_web(web)
+    assert web.post("/auth/sair").status_code == 204
+    assert web.get("/auth/eu").status_code == 401
+
+
+def test_bearer_continua_valendo_sem_exigir_csrf(client):
+    """Celular: o token vai no cabeçalho (não é enviado sozinho pelo navegador, então não há CSRF)."""
+    u = cadastrar(client, "mobile@x.com")
+    assert client.patch("/auth/eu", headers=u["h"], json={"nome": "Mob"}).status_code == 200

@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
-import 'package:mente_saudavel/database/sessao_dao.dart';
+import 'package:mente_saudavel/app/dependencias.dart';
+import 'package:mente_saudavel/domain/repositories/sessao_repository.dart';
 import 'package:mente_saudavel/models/sessao.dart';
 import 'package:mente_saudavel/services/auth_service.dart';
 import 'package:mente_saudavel/utils/formatters.dart';
@@ -15,7 +16,7 @@ class AgendaTab extends StatefulWidget {
 }
 
 class _AgendaTabState extends State<AgendaTab> {
-  final SessaoDao _dao = SessaoDao();
+  final SessaoRepository _dao = Dependencias.instancia.sessoes;
 
   DateTime _dia = somenteData(DateTime.now());
   List<Sessao> _sessoes = [];

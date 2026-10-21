@@ -1,5 +1,6 @@
 """API REST do Mente Saudável. Toda regra de acesso fica aqui, no servidor."""
 
+import logging
 import time
 from collections import defaultdict, deque
 from collections.abc import Callable, Iterator
@@ -14,7 +15,7 @@ from sqlalchemy.orm import Session, sessionmaker
 
 from app import schemas
 from app.config import Settings, load_settings
-from app.db import Base, garantir_colunas, make_engine, make_session_factory, session_iter
+from app.db import Base, garantir_colunas, garantir_indices, make_engine, make_session_factory, session_iter
 from app.models import Avaliacao, Humor, Sessao, Usuario
 from app.security import HASH_FALSO, criar_token, hash_senha, ler_token, verificar_senha
 
@@ -95,11 +96,19 @@ class _LimiteLogin:
         self._tentativas.pop(chave, None)
 
 
+COOKIE_SESSAO = "ms_sessao"
+
+
 def create_app(settings: Settings | None = None, engine: Engine | None = None) -> FastAPI:
     cfg = settings or load_settings()
     eng = engine or make_engine(cfg.database_url)
     Base.metadata.create_all(eng)
     garantir_colunas(eng)
+    indices_faltando = garantir_indices(eng)
+    if indices_faltando:
+        logging.getLogger("mente_saudavel").warning(
+            "Há sessões ativas duplicadas: não foi possível criar os índices %s. Cancele as duplicadas e reinicie.", indices_faltando
+        )
     factory: sessionmaker[Session] = make_session_factory(eng)
     limite = _LimiteLogin(cfg.login_max_attempts)
     limite_cadastro = _LimiteLogin(cfg.signup_max_attempts)  # por IP: evita criação em massa de contas
@@ -115,7 +124,7 @@ def create_app(settings: Settings | None = None, engine: Engine | None = None) -
             CORSMiddleware,
             allow_origins=list(cfg.cors_origins),
             allow_methods=["GET", "POST", "PUT", "PATCH", "DELETE"],
-            allow_headers=["Authorization", "Content-Type"],
+            allow_headers=["Authorization", "Content-Type", "X-Requested-With"],
             max_age=600,
         )
 
@@ -134,9 +143,19 @@ def create_app(settings: Settings | None = None, engine: Engine | None = None) -
 
     def usuario_atual(request: Request, db: Db) -> Usuario:
         auth = request.headers.get("Authorization", "")
-        if not auth.startswith("Bearer "):
+        if auth.startswith("Bearer "):  # celular: token no cabeçalho (guardado no Keystore/Keychain)
+            token = auth[7:]
+        else:  # web: cookie HttpOnly, que o JavaScript da página não consegue ler (protege contra XSS)
+            token = request.cookies.get(COOKIE_SESSAO, "")
+            if not token:
+                raise HTTPException(401, "Não autenticado.")
+            # Defesa extra contra CSRF (além de SameSite=Strict): ações que alteram dados exigem este
+            # cabeçalho, que um formulário de outro site não consegue enviar.
+            if request.method not in {"GET", "HEAD", "OPTIONS"} and request.headers.get("X-Requested-With") != "mente-saudavel":
+                raise HTTPException(403, "Requisição não permitida.")
+        if not token:
             raise HTTPException(401, "Não autenticado.")
-        uid = ler_token(auth[7:], cfg.jwt_secret)
+        uid = ler_token(token, cfg.jwt_secret)
         user = db.get(Usuario, uid) if uid is not None else None
         if user is None:
             raise HTTPException(401, "Sessão expirada. Entre novamente.")
@@ -166,6 +185,17 @@ def create_app(settings: Settings | None = None, engine: Engine | None = None) -
             return "Você já tem uma sessão neste horário."
         return None
 
+    def gravar_sessao(db: Session, prof_id: int, pac_id: int, quando: datetime, ignorar: int) -> None:
+        """Confirma a gravação. Se o banco recusar por horário duplicado (corrida entre 2 requisições), responde 409."""
+        try:
+            db.commit()
+        except IntegrityError as e:
+            db.rollback()
+            texto = str(e.orig).lower()
+            if "unique" not in texto and "duplicate" not in texto:
+                raise
+            raise HTTPException(409, mensagem_conflito(db, prof_id, pac_id, quando, ignorar) or "Este horário acabou de ser ocupado. Escolha outro.") from None
+
     # ------------------------------------------------------------------ saúde
     @app.get("/health")
     def health(db: Db) -> dict[str, str]:
@@ -173,11 +203,13 @@ def create_app(settings: Settings | None = None, engine: Engine | None = None) -
         return {"status": "ok"}
 
     # ------------------------------------------------------------------- auth
-    def emitir(user: Usuario) -> dict[str, Any]:
-        return {"token": criar_token(user.id, cfg.jwt_secret, cfg.jwt_ttl_hours), "usuario": _usuario_out(user)}
+    def emitir(user: Usuario, response: Response) -> dict[str, Any]:
+        token = criar_token(user.id, cfg.jwt_secret, cfg.jwt_ttl_hours)
+        response.set_cookie(COOKIE_SESSAO, token, max_age=cfg.jwt_ttl_hours * 3600, httponly=True, secure=cfg.cookie_secure, samesite="strict", path="/")
+        return {"token": token, "usuario": _usuario_out(user)}
 
     @app.post("/auth/cadastro", status_code=201)
-    def cadastro(body: schemas.CadastroIn, request: Request, db: Db) -> dict[str, Any]:
+    def cadastro(body: schemas.CadastroIn, request: Request, response: Response, db: Db) -> dict[str, Any]:
         limite_cadastro.checar(request.client.host if request.client else "?")
         if len(body.senha) < cfg.password_min:
             raise HTTPException(422, f"A senha deve ter pelo menos {cfg.password_min} caracteres.")
@@ -200,10 +232,10 @@ def create_app(settings: Settings | None = None, engine: Engine | None = None) -
         except IntegrityError:
             db.rollback()
             raise HTTPException(409, "Este e-mail já está cadastrado.") from None
-        return emitir(user)
+        return emitir(user, response)
 
     @app.post("/auth/entrar")
-    def entrar(body: schemas.EntrarIn, request: Request, db: Db) -> dict[str, Any]:
+    def entrar(body: schemas.EntrarIn, request: Request, response: Response, db: Db) -> dict[str, Any]:
         email = body.email.lower()
         chave = f"{request.client.host if request.client else '?'}|{email}"
         limite.checar(chave)
@@ -213,7 +245,14 @@ def create_app(settings: Settings | None = None, engine: Engine | None = None) -
         if user is None or not ok:
             raise HTTPException(401, "E-mail ou senha incorretos.")
         limite.limpar(chave)
-        return emitir(user)
+        return emitir(user, response)
+
+    @app.post("/auth/sair", status_code=204)
+    def sair() -> Response:
+        """Encerra a sessão web: apaga o cookie (só o servidor consegue, porque ele é HttpOnly)."""
+        resp = Response(status_code=204)
+        resp.delete_cookie(COOKIE_SESSAO, path="/", httponly=True, secure=cfg.cookie_secure, samesite="strict")
+        return resp
 
     @app.get("/auth/eu")
     def eu(user: Eu) -> dict[str, Any]:
@@ -361,7 +400,7 @@ def create_app(settings: Settings | None = None, engine: Engine | None = None) -
             valor_centavos=prof.valor_sessao_centavos or 0,  # congela o preço da hora do agendamento
         )
         db.add(s)
-        db.commit()
+        gravar_sessao(db, prof.id, user.id, body.data_hora, -1)
         return _sessao_out(s, ver_anotacoes=False)
 
     @app.patch("/sessoes/{sessao_id}")
@@ -387,7 +426,7 @@ def create_app(settings: Settings | None = None, engine: Engine | None = None) -
                 raise HTTPException(409, msg)
             s.data_hora = body.data_hora
             s.status = "agendada"
-        db.commit()
+        gravar_sessao(db, s.profissional_id, s.paciente_id, s.data_hora, s.id)
         return _sessao_out(s, ver_anotacoes=souprof)
 
     @app.delete("/sessoes/{sessao_id}", status_code=204)

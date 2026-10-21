@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
-import 'package:mente_saudavel/database/sessao_dao.dart';
+import 'package:mente_saudavel/app/dependencias.dart';
+import 'package:mente_saudavel/domain/repositories/sessao_repository.dart';
 import 'package:mente_saudavel/models/sessao.dart';
 import 'package:mente_saudavel/services/auth_service.dart';
 import 'package:mente_saudavel/widgets/componentes.dart';
@@ -16,7 +17,7 @@ class PacienteDetalheScreen extends StatefulWidget {
 }
 
 class _PacienteDetalheScreenState extends State<PacienteDetalheScreen> {
-  final SessaoDao _dao = SessaoDao();
+  final SessaoRepository _dao = Dependencias.instancia.sessoes;
 
   List<Sessao> _sessoes = [];
   bool _carregando = true;

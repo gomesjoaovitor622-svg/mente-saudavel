@@ -19,7 +19,8 @@ class AuthService {
       // Se o servidor responder 401 em qualquer tela, volta para o login.
       ApiClient.aoExpirar = () => atual.value = null;
       final token = await ApiClient.carregarToken();
-      if (token == null) return;
+      // Web: não há token legível (o cookie HttpOnly vai sozinho); pergunta ao servidor.
+      if (token == null && !ApiClient.usaCookie) return;
       try {
         atual.value = _doServidor(await ApiClient.get('/auth/eu'));
       } on AppException {
@@ -106,7 +107,7 @@ class AuthService {
 
   static Future<void> sair() async {
     if (usaServidor) {
-      await ApiClient.limparToken();
+      await ApiClient.encerrarSessao();
       atual.value = null;
       return;
     }
@@ -148,7 +149,7 @@ class AuthService {
   static Future<void> excluirConta() async {
     if (usaServidor) {
       await ApiClient.delete('/auth/eu');
-      await ApiClient.limparToken();
+      await ApiClient.encerrarSessao();
       atual.value = null;
       return;
     }

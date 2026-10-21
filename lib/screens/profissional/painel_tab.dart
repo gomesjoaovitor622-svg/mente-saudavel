@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:mente_saudavel/database/avaliacao_dao.dart';
-import 'package:mente_saudavel/database/sessao_dao.dart';
+import 'package:mente_saudavel/app/dependencias.dart';
+import 'package:mente_saudavel/domain/repositories/sessao_repository.dart';
 import 'package:mente_saudavel/models/sessao.dart';
 import 'package:mente_saudavel/models/usuario.dart';
 import 'package:mente_saudavel/services/api_client.dart';
@@ -21,7 +22,7 @@ class PainelTab extends StatefulWidget {
 }
 
 class _PainelTabState extends State<PainelTab> {
-  final SessaoDao _dao = SessaoDao();
+  final SessaoRepository _dao = Dependencias.instancia.sessoes;
   final AvaliacaoDao _avaliacaoDao = AvaliacaoDao();
 
   int _atendimentosHoje = 0;

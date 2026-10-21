@@ -6,3 +6,9 @@ class AppException implements Exception {
   @override
   String toString() => mensagem;
 }
+
+/// Conflito com o estado atual (HTTP 409 na API; índice único no SQLite): por exemplo,
+/// horário já ocupado. A tela deve mostrar a mensagem e recarregar a disponibilidade.
+class ConflitoException extends AppException {
+  const ConflitoException(super.mensagem);
+}

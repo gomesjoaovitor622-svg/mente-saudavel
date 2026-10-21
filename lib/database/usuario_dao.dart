@@ -61,6 +61,7 @@ class UsuarioDao {
         'registro': u.registro,
         'especialidade': u.especialidade,
         'endereco': u.endereco,
+        'valor_sessao_centavos': u.valorSessaoCentavos,
       },
       where: 'id = ?',
       whereArgs: [u.id],

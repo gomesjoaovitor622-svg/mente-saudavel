@@ -1,15 +1,23 @@
 import 'package:sqflite/sqflite.dart';
 import 'package:mente_saudavel/database/database_helper.dart';
+import 'package:mente_saudavel/domain/repositories/sessao_repository.dart';
 import 'package:mente_saudavel/models/sessao.dart';
+import 'package:mente_saudavel/utils/app_exception.dart';
 import 'package:mente_saudavel/utils/formatters.dart';
-import 'package:mente_saudavel/services/api_client.dart';
-import 'package:mente_saudavel/utils/build_flags.dart';
 
-/// Acesso à tabela "sessoes" (agendamentos entre paciente e profissional).
-class SessaoDao {
-  Future<Database> get _db => DatabaseHelper.instance.database;
+/// Sessões no SQLite do aparelho. Todas as consultas usam parâmetros (`?`).
+///
+/// Operações de VÁRIAS etapas ([agendar], [remarcar]) rodam em `db.transaction`: conferir o
+/// horário e gravar são um bloco só (tudo ou nada). Além disso, o índice único do banco
+/// (`uq_sessao_*_horario`) é a última barreira contra horário duplicado.
+class SessaoRepositoryLocal implements SessaoRepository {
+  /// [abrirBanco] existe para os testes usarem um banco em memória.
+  SessaoRepositoryLocal({Future<Database> Function()? abrirBanco})
+      : _abrir = abrirBanco ?? (() => DatabaseHelper.instance.database);
 
-  // SELECT base: traz também os nomes do paciente e do profissional (JOIN).
+  final Future<Database> Function() _abrir;
+
+  // SELECT base: traz também os nomes do paciente e do profissional (JOIN). Texto constante.
   static const String _select = '''
     SELECT s.*,
            pac.nome          AS paciente_nome,
@@ -22,29 +30,57 @@ class SessaoDao {
     JOIN usuarios pro ON pro.id = s.profissional_id
   ''';
 
-  // ---------- CREATE ----------
-  Future<int> inserir(Sessao sessao) async {
-    if (usaServidor) {
-      final r = await ApiClient.post('/sessoes', corpo: {
-        'profissional_id': sessao.profissionalId,
-        'data_hora': sessao.dataHora.toIso8601String(),
-        'modalidade': sessao.modalidade,
-      }) as Map<String, dynamic>;
-      return r['id'] as int;
+  // ---------- CREATE (transação: conferir + gravar) ----------
+  @override
+  Future<int> agendar({
+    required int pacienteId,
+    required int profissionalId,
+    required DateTime dataHora,
+    required String modalidade,
+  }) async {
+    if (!dataHora.isAfter(DateTime.now())) {
+      throw const AppException('Escolha um horário no futuro.');
     }
-    final db = await _db;
-    return db.insert('sessoes', sessao.toMap());
+    final db = await _abrir();
+    try {
+      return await db.transaction((txn) async {
+        final profissional = await txn.query(
+          'usuarios',
+          columns: ['valor_sessao_centavos'],
+          where: 'id = ? AND perfil = ?',
+          whereArgs: [profissionalId, 'profissional'],
+          limit: 1,
+        );
+        if (profissional.isEmpty) throw const AppException('Profissional não encontrado.');
+
+        final conflito = await _mensagemConflito(
+          txn,
+          profissionalId: profissionalId,
+          pacienteId: pacienteId,
+          dataHora: dataHora,
+        );
+        if (conflito != null) throw ConflitoException(conflito);
+
+        final sessao = Sessao(
+          pacienteId: pacienteId,
+          profissionalId: profissionalId,
+          dataHora: dataHora,
+          modalidade: modalidade,
+          status: StatusSessao.agendada,
+          // Congela o preço vigente na hora do agendamento (mudar o preço depois não afeta este).
+          valorCentavos: (profissional.first['valor_sessao_centavos'] as num?)?.toInt() ?? 0,
+        );
+        return txn.insert('sessoes', sessao.toMap());
+      });
+    } on DatabaseException catch (e) {
+      throw _traduzir(e);
+    }
   }
 
   // ---------- READ: paciente ----------
-  Future<List<Sessao>> _remotoLista(Map<String, String> consulta) async {
-    final r = await ApiClient.get('/sessoes', consulta: consulta);
-    return ApiClient.comoLista(r).map(Sessao.fromMap).toList();
-  }
-
+  @override
   Future<List<Sessao>> doPaciente(int pacienteId, {String? status}) async {
-    if (usaServidor) return _remotoLista({if (status != null) 'status': status});
-    final db = await _db;
+    final db = await _abrir();
     final linhas = status == null
         ? await db.rawQuery(
             '$_select WHERE s.paciente_id = ? ORDER BY s.data_hora DESC',
@@ -57,15 +93,9 @@ class SessaoDao {
     return linhas.map(Sessao.fromMap).toList();
   }
 
+  @override
   Future<Sessao?> proximaDoPaciente(int pacienteId) async {
-    if (usaServidor) {
-      final lista = await _remotoLista({
-        'status': StatusSessao.agendada,
-        'de': DateTime.now().toIso8601String(),
-      });
-      return lista.isEmpty ? null : lista.first; // o servidor ordena do mais próximo
-    }
-    final db = await _db;
+    final db = await _abrir();
     final linhas = await db.rawQuery(
       '''$_select
          WHERE s.paciente_id = ? AND s.status = 'agendada' AND s.data_hora >= ?
@@ -76,9 +106,9 @@ class SessaoDao {
     return Sessao.fromMap(linhas.first);
   }
 
+  @override
   Future<int> concluidasDoPaciente(int pacienteId) async {
-    if (usaServidor) return (await _remotoLista({'status': StatusSessao.concluida})).length;
-    final db = await _db;
+    final db = await _abrir();
     final r = await db.rawQuery(
       "SELECT COUNT(*) FROM sessoes WHERE paciente_id = ? AND status = 'concluida'",
       [pacienteId],
@@ -87,23 +117,16 @@ class SessaoDao {
   }
 
   // ---------- READ: profissional ----------
+  @override
   Future<List<Sessao>> doProfissionalNoDia(
     int profissionalId,
     DateTime dia, {
     bool incluirCanceladas = true,
   }) async {
-    if (usaServidor) {
-      final inicio = somenteData(dia);
-      final fim = DateTime(dia.year, dia.month, dia.day + 1);
-      return _remotoLista({
-        'de': inicio.toIso8601String(),
-        'ate': fim.toIso8601String(),
-        if (!incluirCanceladas) 'nao_canceladas': 'true',
-      });
-    }
-    final db = await _db;
+    final db = await _abrir();
     final inicio = somenteData(dia);
     final fim = DateTime(dia.year, dia.month, dia.day + 1);
+    // Interpolação SÓ de um trecho constante (nunca de entrada do usuário).
     final filtroStatus = incluirCanceladas ? '' : "AND s.status != 'cancelada'";
     final linhas = await db.rawQuery(
       '''$_select
@@ -114,11 +137,9 @@ class SessaoDao {
     return linhas.map(Sessao.fromMap).toList();
   }
 
+  @override
   Future<int> atendimentosHoje(int profissionalId) async {
-    if (usaServidor) {
-      return (await doProfissionalNoDia(profissionalId, DateTime.now(), incluirCanceladas: false)).length;
-    }
-    final db = await _db;
+    final db = await _abrir();
     final hoje = somenteData(DateTime.now());
     final amanha = DateTime(hoje.year, hoje.month, hoje.day + 1);
     final r = await db.rawQuery(
@@ -130,9 +151,9 @@ class SessaoDao {
     return Sqflite.firstIntValue(r) ?? 0;
   }
 
+  @override
   Future<int> pacientesAtivos(int profissionalId) async {
-    if (usaServidor) return (await pacientesDoProfissional(profissionalId)).length;
-    final db = await _db;
+    final db = await _abrir();
     final r = await db.rawQuery(
       '''SELECT COUNT(DISTINCT paciente_id) FROM sessoes
          WHERE profissional_id = ? AND status != 'cancelada'
@@ -142,12 +163,9 @@ class SessaoDao {
     return Sqflite.firstIntValue(r) ?? 0;
   }
 
+  @override
   Future<List<PacienteResumo>> pacientesDoProfissional(int profissionalId) async {
-    if (usaServidor) {
-      final r = await ApiClient.get('/profissional/pacientes');
-      return ApiClient.comoLista(r).map(PacienteResumo.fromMap).toList();
-    }
-    final db = await _db;
+    final db = await _abrir();
     final linhas = await db.rawQuery(
       '''SELECT u.id, u.nome, u.email,
                 COUNT(s.id) AS total,
@@ -164,9 +182,9 @@ class SessaoDao {
     return linhas.map(PacienteResumo.fromMap).toList();
   }
 
+  @override
   Future<List<Sessao>> doProfissionalComPaciente(int profissionalId, int pacienteId) async {
-    if (usaServidor) return _remotoLista({'paciente_id': '$pacienteId'});
-    final db = await _db;
+    final db = await _abrir();
     final linhas = await db.rawQuery(
       '''$_select
          WHERE s.profissional_id = ? AND s.paciente_id = ?
@@ -177,14 +195,9 @@ class SessaoDao {
   }
 
   // ---------- Disponibilidade ----------
-  /// Horas (0-23) já ocupadas pelo profissional em um dia.
+  @override
   Future<Set<int>> horasOcupadas(int profissionalId, DateTime dia) async {
-    if (usaServidor) {
-      final r = await ApiClient.get('/profissionais/$profissionalId/horas-ocupadas',
-          consulta: {'dia': somenteData(dia).toIso8601String()});
-      return (r as List<dynamic>).map((e) => e as int).toSet();
-    }
-    final db = await _db;
+    final db = await _abrir();
     final inicio = somenteData(dia);
     final fim = DateTime(dia.year, dia.month, dia.day + 1);
     final linhas = await db.rawQuery(
@@ -196,22 +209,15 @@ class SessaoDao {
     return linhas.map((l) => DateTime.parse(l['data_hora'] as String).hour).toSet();
   }
 
-  /// Retorna uma mensagem de erro se houver conflito de horário, ou null se livre.
-  Future<String?> verificarConflito({
+  /// Mensagem de erro se houver conflito de horário, ou null se livre.
+  /// Recebe o [DatabaseExecutor] para rodar DENTRO da transação de quem chamou.
+  Future<String?> _mensagemConflito(
+    DatabaseExecutor db, {
     required int profissionalId,
     required int pacienteId,
     required DateTime dataHora,
     int? ignorarId,
   }) async {
-    if (usaServidor) {
-      final r = await ApiClient.get('/sessoes/conflito', consulta: {
-        'profissional_id': '$profissionalId',
-        'data_hora': dataHora.toIso8601String(),
-        'ignorar_id': '${ignorarId ?? -1}',
-      }) as Map<String, dynamic>;
-      return r['mensagem'] as String?;
-    }
-    final db = await _db;
     final quando = dataHora.toIso8601String();
     final ignorar = ignorarId ?? -1;
 
@@ -234,46 +240,66 @@ class SessaoDao {
     return null;
   }
 
+  /// Se o índice único recusou a gravação (corrida), vira o mesmo erro de conflito da API (409).
+  Object _traduzir(DatabaseException e) {
+    if (e.isUniqueConstraintError()) {
+      return const ConflitoException('Este horário acabou de ser ocupado. Escolha outro.');
+    }
+    return e;
+  }
+
   // ---------- UPDATE ----------
-  Future<int> atualizarStatus(int id, String status) async {
-    if (usaServidor) {
-      await ApiClient.patch('/sessoes/$id', corpo: {'status': status});
-      return 1;
-    }
-    final db = await _db;
-    return db.update('sessoes', {'status': status}, where: 'id = ?', whereArgs: [id]);
+  @override
+  Future<void> atualizarStatus(int id, String status) async {
+    final db = await _abrir();
+    await db.update('sessoes', {'status': status}, where: 'id = ?', whereArgs: [id]);
   }
 
-  Future<int> atualizarAnotacoes(int id, String anotacoes) async {
-    if (usaServidor) {
-      await ApiClient.patch('/sessoes/$id', corpo: {'anotacoes': anotacoes});
-      return 1;
-    }
-    final db = await _db;
-    return db.update('sessoes', {'anotacoes': anotacoes}, where: 'id = ?', whereArgs: [id]);
+  @override
+  Future<void> atualizarAnotacoes(int id, String anotacoes) async {
+    final db = await _abrir();
+    await db.update('sessoes', {'anotacoes': anotacoes}, where: 'id = ?', whereArgs: [id]);
   }
 
-  Future<int> remarcar(int id, DateTime novaDataHora) async {
-    if (usaServidor) {
-      await ApiClient.patch('/sessoes/$id', corpo: {'data_hora': novaDataHora.toIso8601String()});
-      return 1;
+  @override
+  Future<void> remarcar(int id, DateTime novaDataHora) async {
+    final db = await _abrir();
+    try {
+      await db.transaction((txn) async {
+        final atual = await txn.query(
+          'sessoes',
+          columns: ['profissional_id', 'paciente_id'],
+          where: 'id = ?',
+          whereArgs: [id],
+          limit: 1,
+        );
+        if (atual.isEmpty) throw const AppException('Sessão não encontrada.');
+
+        final conflito = await _mensagemConflito(
+          txn,
+          profissionalId: atual.first['profissional_id'] as int,
+          pacienteId: atual.first['paciente_id'] as int,
+          dataHora: novaDataHora,
+          ignorarId: id,
+        );
+        if (conflito != null) throw ConflitoException(conflito);
+
+        await txn.update(
+          'sessoes',
+          {'data_hora': novaDataHora.toIso8601String(), 'status': StatusSessao.agendada},
+          where: 'id = ?',
+          whereArgs: [id],
+        );
+      });
+    } on DatabaseException catch (e) {
+      throw _traduzir(e);
     }
-    final db = await _db;
-    return db.update(
-      'sessoes',
-      {'data_hora': novaDataHora.toIso8601String(), 'status': StatusSessao.agendada},
-      where: 'id = ?',
-      whereArgs: [id],
-    );
   }
 
   // ---------- DELETE ----------
-  Future<int> excluir(int id) async {
-    if (usaServidor) {
-      await ApiClient.delete('/sessoes/$id');
-      return 1;
-    }
-    final db = await _db;
-    return db.delete('sessoes', where: 'id = ?', whereArgs: [id]);
+  @override
+  Future<void> excluir(int id) async {
+    final db = await _abrir();
+    await db.delete('sessoes', where: 'id = ?', whereArgs: [id]);
   }
 }

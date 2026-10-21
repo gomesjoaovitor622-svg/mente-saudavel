@@ -1,10 +1,12 @@
 import 'package:flutter/material.dart';
-import 'package:mente_saudavel/database/sessao_dao.dart';
+import 'package:mente_saudavel/app/dependencias.dart';
+import 'package:mente_saudavel/domain/repositories/sessao_repository.dart';
 import 'package:mente_saudavel/database/usuario_dao.dart';
 import 'package:mente_saudavel/models/sessao.dart';
 import 'package:mente_saudavel/models/usuario.dart';
 import 'package:mente_saudavel/services/api_service.dart';
 import 'package:mente_saudavel/services/auth_service.dart';
+import 'package:mente_saudavel/utils/app_exception.dart';
 import 'package:mente_saudavel/utils/formatters.dart';
 import 'package:mente_saudavel/widgets/componentes.dart';
 
@@ -24,7 +26,7 @@ class _AgendarSessaoScreenState extends State<AgendarSessaoScreen> {
   static const List<int> _horarios = [8, 9, 10, 11, 13, 14, 15, 16, 17, 18];
 
   final UsuarioDao _usuarioDao = UsuarioDao();
-  final SessaoDao _sessaoDao = SessaoDao();
+  final SessaoRepository _sessaoDao = Dependencias.instancia.sessoes;
 
   List<Usuario> _profissionais = [];
   Usuario? _profissional;
@@ -129,32 +131,26 @@ class _AgendarSessaoScreenState extends State<AgendarSessaoScreen> {
     setState(() => _salvando = true);
 
     try {
-      // Confere de novo no banco, para evitar horário duplicado.
-      final conflito = await _sessaoDao.verificarConflito(
-        profissionalId: profissional.id!,
+      // Atômico: o repositório confere o horário e grava na mesma transação (e o banco ainda
+      // tem índice único). Se o horário foi ocupado nesse meio tempo, sobe ConflitoException.
+      await _sessaoDao.agendar(
         pacienteId: pacienteId,
+        profissionalId: profissional.id!,
         dataHora: dataHora,
-      );
-      if (conflito != null) {
-        if (!mounted) return;
-        setState(() => _salvando = false);
-        mostrarMensagem(context, conflito, erro: true);
-        await _atualizarDisponibilidade();
-        return;
-      }
-
-      await _sessaoDao.inserir(
-        Sessao(
-          pacienteId: pacienteId,
-          profissionalId: profissional.id!,
-          dataHora: dataHora,
-          modalidade: _modalidade,
-          status: StatusSessao.agendada,
-        ),
+        modalidade: _modalidade,
       );
       if (!mounted) return;
       mostrarMensagem(context, 'Sessão agendada com sucesso!');
       Navigator.pop(context, true);
+    } on ConflitoException catch (e) {
+      if (!mounted) return;
+      setState(() => _salvando = false);
+      mostrarMensagem(context, e.mensagem, erro: true);
+      await _atualizarDisponibilidade(); // o horário some das opções
+    } on AppException catch (e) {
+      if (!mounted) return;
+      setState(() => _salvando = false);
+      mostrarMensagem(context, e.mensagem, erro: true);
     } catch (_) {
       if (!mounted) return;
       setState(() => _salvando = false);

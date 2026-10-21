@@ -65,6 +65,7 @@ class Sessao {
       'modalidade': modalidade,
       'status': status,
       'anotacoes': anotacoes,
+      'valor_centavos': valorCentavos,
       'criado_em': DateTime.now().toIso8601String(),
     };
   }

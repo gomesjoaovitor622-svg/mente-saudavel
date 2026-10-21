@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from datetime import datetime
 
-from sqlalchemy import CheckConstraint, DateTime, ForeignKey, Index, Integer, String, Text, UniqueConstraint
+from sqlalchemy import CheckConstraint, DateTime, ForeignKey, Index, Integer, String, Text, UniqueConstraint, text
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.db import Base
@@ -28,12 +28,19 @@ class Usuario(Base):
     criado_em: Mapped[datetime] = mapped_column(DateTime, default=_now)
 
 
+# Índice único PARCIAL: só vale para sessões não canceladas (cancelar libera o horário).
+_ATIVA = text("status <> 'cancelada'")
+
+
 class Sessao(Base):
     __tablename__ = "sessoes"
     __table_args__ = (
         CheckConstraint("status IN ('agendada','concluida','cancelada')", name="ck_status"),
         Index("idx_sessoes_prof", "profissional_id", "data_hora"),
         Index("idx_sessoes_pac", "paciente_id", "data_hora"),
+        # Anti-corrida: o banco recusa 2 sessões ativas no mesmo horário (o "SELECT antes de gravar" sozinho não basta).
+        Index("uq_sessao_prof_horario", "profissional_id", "data_hora", unique=True, postgresql_where=_ATIVA, sqlite_where=_ATIVA),
+        Index("uq_sessao_pac_horario", "paciente_id", "data_hora", unique=True, postgresql_where=_ATIVA, sqlite_where=_ATIVA),
     )
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)

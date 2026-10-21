@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
-import 'package:mente_saudavel/database/sessao_dao.dart';
+import 'package:mente_saudavel/app/dependencias.dart';
+import 'package:mente_saudavel/domain/repositories/sessao_repository.dart';
 import 'package:mente_saudavel/models/sessao.dart';
 import 'package:mente_saudavel/utils/app_exception.dart';
 import 'package:mente_saudavel/services/seguranca.dart';
@@ -34,7 +35,7 @@ class _SessaoSheet extends StatefulWidget {
 }
 
 class _SessaoSheetState extends State<_SessaoSheet> {
-  final SessaoDao _dao = SessaoDao();
+  final SessaoRepository _dao = Dependencias.instancia.sessoes;
   late final TextEditingController _anotacoes;
   bool _ocupado = false;
 
@@ -143,17 +144,9 @@ class _SessaoSheetState extends State<_SessaoSheet> {
       return;
     }
 
+    // Conferir o horário e gravar acontecem juntos (transação); conflito vira mensagem na tela.
     await _executar(
-      () async {
-        final conflito = await _dao.verificarConflito(
-          profissionalId: _sessao.profissionalId,
-          pacienteId: _sessao.pacienteId,
-          dataHora: nova,
-          ignorarId: _sessao.id,
-        );
-        if (conflito != null) throw AppException(conflito);
-        await _dao.remarcar(_sessao.id!, nova);
-      },
+      () => _dao.remarcar(_sessao.id!, nova),
       'Sessão remarcada para ${formatarDataHora(nova)}.',
     );
   }

@@ -1,15 +1,21 @@
 import 'dart:async';
 import 'dart:convert';
 import 'package:http/http.dart' as http;
-import 'package:shared_preferences/shared_preferences.dart';
+import 'package:flutter/foundation.dart' show kIsWeb;
+import 'package:mente_saudavel/services/token_store.dart';
 import 'package:mente_saudavel/utils/app_exception.dart';
 import 'package:mente_saudavel/utils/build_flags.dart';
 
 /// Cliente HTTP da API do Mente Saudável (usado só quando `usaServidor` é true).
 /// Guarda o token de login e converte erros do servidor em [AppException].
 class ApiClient {
-  static const String _chaveToken = 'ms_token';
   static const Duration _limite = Duration(seconds: 20);
+
+  /// Na web a credencial é um cookie HttpOnly (o navegador envia sozinho, no mesmo domínio do
+  /// site). No celular é o token guardado no Keystore/Keychain, enviado no cabeçalho.
+  static bool usaCookie = kIsWeb;
+
+  static TokenStore armazenamento = kIsWeb ? TokenStoreWeb() : TokenStoreSeguro();
 
   static String? _token;
 
@@ -19,8 +25,7 @@ class ApiClient {
   static Future<String?> carregarToken() async {
     if (_token != null) return _token;
     try {
-      final prefs = await SharedPreferences.getInstance();
-      _token = prefs.getString(_chaveToken);
+      _token = await armazenamento.ler();
     } catch (_) {
       _token = null;
     }
@@ -28,10 +33,10 @@ class ApiClient {
   }
 
   static Future<void> salvarToken(String token) async {
+    if (usaCookie) return; // o servidor já mandou o cookie; o token não fica acessível ao app
     _token = token;
     try {
-      final prefs = await SharedPreferences.getInstance();
-      await prefs.setString(_chaveToken, token);
+      await armazenamento.gravar(token);
     } catch (_) {
       // Sem armazenamento: o login vale só até fechar o app.
     }
@@ -40,9 +45,18 @@ class ApiClient {
   static Future<void> limparToken() async {
     _token = null;
     try {
-      final prefs = await SharedPreferences.getInstance();
-      await prefs.remove(_chaveToken);
+      await armazenamento.apagar();
     } catch (_) {}
+  }
+
+  /// Encerra a sessão: o servidor apaga o cookie (só ele consegue) e o token local some.
+  static Future<void> encerrarSessao() async {
+    try {
+      await _enviar('POST', '/auth/sair');
+    } catch (_) {
+      // Sem rede ou sessão já expirada: o logout local continua valendo.
+    }
+    await limparToken();
   }
 
   static Uri _uri(String caminho, Map<String, String>? consulta) {
@@ -60,7 +74,8 @@ class ApiClient {
     Object? corpo,
     bool autenticado = true,
   }) async {
-    final cabecalhos = <String, String>{'Content-Type': 'application/json'};
+    // X-Requested-With: o servidor exige este cabeçalho nas ações feitas com cookie (anti-CSRF).
+    final cabecalhos = <String, String>{'Content-Type': 'application/json', 'X-Requested-With': 'mente-saudavel'};
     final token = autenticado ? await carregarToken() : null;
     if (token != null) cabecalhos['Authorization'] = 'Bearer $token';
 
@@ -85,7 +100,10 @@ class ApiClient {
       await limparToken();
       aoExpirar?.call();
     }
-    throw AppException(_mensagemDeErro(resposta.statusCode, dados));
+    final mensagem = _mensagemDeErro(resposta.statusCode, dados);
+    // 409 = conflito com o estado atual (ex.: horário já ocupado): tipo próprio para a tela reagir.
+    if (resposta.statusCode == 409) throw ConflitoException(mensagem);
+    throw AppException(mensagem);
   }
 
   static dynamic _decodificar(String texto) {
