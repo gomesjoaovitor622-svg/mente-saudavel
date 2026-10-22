@@ -26,10 +26,15 @@ class Usuario(Base):
     endereco: Mapped[str | None] = mapped_column(String(255), nullable=True)
     valor_sessao_centavos: Mapped[int | None] = mapped_column(Integer, nullable=True)  # preço do profissional (R$ em centavos)
     criado_em: Mapped[datetime] = mapped_column(DateTime, default=_now)
+    # LGPD: qual versão dos Termos/Política a pessoa aceitou e quando; e quando os dados foram anonimizados.
+    aceite_termos_versao: Mapped[str | None] = mapped_column(String(20), nullable=True)
+    aceite_termos_em: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    anonimizado_em: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
 
 
 # Índice único PARCIAL: só vale para sessões não canceladas (cancelar libera o horário).
 _ATIVA = text("status <> 'cancelada'")
+_COM_CHAVE = text("chave_idempotencia IS NOT NULL")
 
 
 class Sessao(Base):
@@ -41,6 +46,8 @@ class Sessao(Base):
         # Anti-corrida: o banco recusa 2 sessões ativas no mesmo horário (o "SELECT antes de gravar" sozinho não basta).
         Index("uq_sessao_prof_horario", "profissional_id", "data_hora", unique=True, postgresql_where=_ATIVA, sqlite_where=_ATIVA),
         Index("uq_sessao_pac_horario", "paciente_id", "data_hora", unique=True, postgresql_where=_ATIVA, sqlite_where=_ATIVA),
+        # Idempotência: reenviar o MESMO agendamento (app offline que tenta de novo) não cria uma 2ª sessão.
+        Index("uq_sessao_idempotencia", "paciente_id", "chave_idempotencia", unique=True, postgresql_where=_COM_CHAVE, sqlite_where=_COM_CHAVE),
     )
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
@@ -50,6 +57,7 @@ class Sessao(Base):
     modalidade: Mapped[str] = mapped_column(String(20))
     status: Mapped[str] = mapped_column(String(20), default="agendada")
     anotacoes: Mapped[str | None] = mapped_column(Text, nullable=True)
+    chave_idempotencia: Mapped[str | None] = mapped_column(String(64), nullable=True)
     valor_centavos: Mapped[int] = mapped_column(Integer, default=0, server_default="0")  # preço combinado na hora do agendamento
     criado_em: Mapped[datetime] = mapped_column(DateTime, default=_now)
 
