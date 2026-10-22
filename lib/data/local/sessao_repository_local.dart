@@ -37,6 +37,7 @@ class SessaoRepositoryLocal implements SessaoRepository {
     required int profissionalId,
     required DateTime dataHora,
     required String modalidade,
+    String? chaveIdempotencia, // só faz sentido no servidor; o banco local ignora
   }) async {
     if (!dataHora.isAfter(DateTime.now())) {
       throw const AppException('Escolha um horário no futuro.');

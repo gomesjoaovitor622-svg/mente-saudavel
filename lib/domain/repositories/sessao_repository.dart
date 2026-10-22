@@ -13,6 +13,7 @@ abstract interface class SessaoRepository {
     required int profissionalId,
     required DateTime dataHora,
     required String modalidade,
+    String? chaveIdempotencia,
   });
 
   Future<List<Sessao>> doPaciente(int pacienteId, {String? status});

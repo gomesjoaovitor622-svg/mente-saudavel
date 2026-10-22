@@ -26,10 +26,15 @@ Future<void> main() async {
     await configurarBanco();
     // Composition root: escolhe UMA vez entre SQLite local e API.
     Dependencias.configurar(Dependencias.producao());
+    // Modo servidor: reenvia a fila offline a cada 30 s (e logo que uma ação é guardada).
+    Dependencias.instancia.sincronizador?.iniciar();
     runApp(
       ProviderScope(
         // Os providers recebem do composition root o repositório escolhido (SQLite ou API).
-        overrides: [sessaoRepositoryProvider.overrideWithValue(Dependencias.instancia.sessoes)],
+        overrides: [
+          sessaoRepositoryProvider.overrideWithValue(Dependencias.instancia.sessoes),
+          sincronizadorProvider.overrideWithValue(Dependencias.instancia.sincronizador),
+        ],
         child: const MenteSaudavelApp(),
       ),
     );

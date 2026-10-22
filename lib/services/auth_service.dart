@@ -1,4 +1,5 @@
 import 'package:flutter/foundation.dart';
+import 'package:mente_saudavel/data/local/outbox_repository.dart';
 import 'package:mente_saudavel/database/usuario_dao.dart';
 import 'package:mente_saudavel/models/usuario.dart';
 import 'package:mente_saudavel/services/seguranca.dart';
@@ -123,6 +124,10 @@ class AuthService {
   static Future<void> sair() async {
     if (usaServidor) {
       await ApiClient.encerrarSessao();
+      // Dados de saúde em cache não ficam no aparelho depois do logout.
+      try {
+        await CacheKv().limpar();
+      } catch (_) {}
       atual.value = null;
       return;
     }

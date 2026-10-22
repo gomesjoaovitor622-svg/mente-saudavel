@@ -1,8 +1,10 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:mente_saudavel/data/local/outbox_repository.dart';
 import 'package:mente_saudavel/domain/repositories/sessao_repository.dart';
 import 'package:mente_saudavel/models/sessao.dart';
 import 'package:mente_saudavel/models/usuario.dart';
 import 'package:mente_saudavel/services/auth_service.dart';
+import 'package:mente_saudavel/services/sincronizador_outbox.dart';
 import 'package:mente_saudavel/services/telemetria.dart';
 
 /// Repositório de sessões. O valor real é injetado no `main()` (composition root, via
@@ -21,6 +23,28 @@ final usuarioAtualProvider = Provider<Usuario?>((ref) {
   return notificador.value;
 });
 
+/// Sincronizador da fila offline (só existe no modo servidor; null no modo local e nos testes).
+final sincronizadorProvider = Provider<SincronizadorOutbox?>((ref) => null);
+
+/// Muda sempre que a fila offline ou os dados sincronizados mudam. Quem depende dela recarrega.
+final outboxVersaoProvider = Provider<int>((ref) {
+  final sincronizador = ref.watch(sincronizadorProvider);
+  if (sincronizador == null) return 0;
+  void aoMudar() => ref.invalidateSelf();
+  sincronizador.versao.addListener(aoMudar);
+  ref.onDispose(() => sincronizador.versao.removeListener(aoMudar));
+  return sincronizador.versao.value;
+});
+
+/// Itens da fila offline da pessoa logada (pendentes, em conflito ou que falharam).
+final pendenciasOutboxProvider = FutureProvider<List<ItemOutbox>>((ref) async {
+  ref.watch(outboxVersaoProvider);
+  final sincronizador = ref.watch(sincronizadorProvider);
+  final usuario = ref.watch(usuarioAtualProvider);
+  if (sincronizador == null || usuario?.id == null) return const <ItemOutbox>[];
+  return sincronizador.outbox.todos(usuario!.id!);
+});
+
 /// Filtro escolhido nos chips: null = todas, ou um `StatusSessao`.
 final filtroSessoesProvider = StateProvider<String?>((ref) => null);
 
@@ -35,6 +59,7 @@ class MinhasSessoesNotifier extends AsyncNotifier<List<Sessao>> {
   Future<List<Sessao>> build() {
     final usuario = ref.watch(usuarioAtualProvider);
     final filtro = ref.watch(filtroSessoesProvider);
+    ref.watch(outboxVersaoProvider); // sincronizou algo? recarrega a lista
     if (usuario?.id == null) return Future.value(const <Sessao>[]);
     final repo = ref.watch(sessaoRepositoryProvider);
     return Telemetria.medir('minhas_sessoes:dados', () => repo.doPaciente(usuario!.id!, status: filtro));

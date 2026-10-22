@@ -134,7 +134,7 @@ class _AgendarSessaoScreenState extends ConsumerState<AgendarSessaoScreen> {
     try {
       // Atômico: o repositório confere o horário e grava na mesma transação (e o banco ainda
       // tem índice único). Se o horário foi ocupado nesse meio tempo, sobe ConflitoException.
-      await _sessaoDao.agendar(
+      final id = await _sessaoDao.agendar(
         pacienteId: pacienteId,
         profissionalId: profissional.id!,
         dataHora: dataHora,
@@ -142,7 +142,11 @@ class _AgendarSessaoScreenState extends ConsumerState<AgendarSessaoScreen> {
       );
       if (!mounted) return;
       ref.invalidate(minhasSessoesProvider); // a aba "Minhas sessões" recarrega sozinha
-      mostrarMensagem(context, 'Sessão agendada com sucesso!');
+      // id negativo = sem internet: ficou na fila e será enviada sozinha quando a conexão voltar.
+      mostrarMensagem(
+        context,
+        id < 0 ? 'Sem internet: o agendamento foi guardado e será enviado assim que a conexão voltar.' : 'Sessão agendada com sucesso!',
+      );
       Navigator.pop(context, true);
     } on ConflitoException catch (e) {
       if (!mounted) return;

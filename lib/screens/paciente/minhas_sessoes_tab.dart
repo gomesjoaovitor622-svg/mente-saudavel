@@ -4,6 +4,7 @@ import 'package:mente_saudavel/models/sessao.dart';
 import 'package:mente_saudavel/presentation/providers/sessoes_providers.dart';
 import 'package:mente_saudavel/screens/paciente/agendar_sessao_screen.dart';
 import 'package:mente_saudavel/widgets/componentes.dart';
+import 'package:mente_saudavel/widgets/pendencias_banner.dart';
 import 'package:mente_saudavel/widgets/medir_tela.dart';
 import 'package:mente_saudavel/widgets/sessao_sheet.dart';
 
@@ -24,6 +25,10 @@ class MinhasSessoesTab extends ConsumerWidget {
   }
 
   Future<void> _abrir(BuildContext context, WidgetRef ref, Sessao sessao) async {
+    if (sessao.pendente) {
+      mostrarMensagem(context, 'Esta sessão será enviada assim que houver internet.');
+      return;
+    }
     final mudou = await mostrarSessaoSheet(context, sessao: sessao, comoProfissional: false);
     if (mudou) ref.invalidate(minhasSessoesProvider);
   }
@@ -48,6 +53,7 @@ class MinhasSessoesTab extends ConsumerWidget {
       appBar: AppBar(title: const Text('Minhas sessões')),
       body: Column(
         children: [
+          const PendenciasBanner(),
           SingleChildScrollView(
             scrollDirection: Axis.horizontal,
             padding: const EdgeInsets.fromLTRB(16, 8, 16, 4),
