@@ -5,9 +5,12 @@ import 'package:mente_saudavel/database/migracoes.dart';
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 
 /// Banco SQLite de verdade (arquivo temporário) para os testes, sem celular nem emulador.
-void iniciarSqliteDeTeste() {
+///
+/// [semIsolate]: use `true` em `testWidgets`. O modo padrão roda o SQLite em outro isolate (tempo real),
+/// que o relógio falso do `testWidgets` não consegue esperar; sem isolate tudo roda no mesmo fluxo.
+void iniciarSqliteDeTeste({bool semIsolate = false}) {
   sqfliteFfiInit();
-  databaseFactory = databaseFactoryFfi;
+  databaseFactory = semIsolate ? databaseFactoryFfiNoIsolate : databaseFactoryFfi;
 }
 
 Future<String> caminhoTemporario() async {

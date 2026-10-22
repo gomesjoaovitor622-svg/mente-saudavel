@@ -5,13 +5,16 @@ import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:mente_saudavel/app/dependencias.dart';
 import 'package:mente_saudavel/database/database_factory_setup.dart';
+import 'package:mente_saudavel/legal/textos_legais.dart';
 import 'package:mente_saudavel/models/usuario.dart';
 import 'package:mente_saudavel/presentation/providers/sessoes_providers.dart';
 import 'package:mente_saudavel/screens/login_screen.dart';
 import 'package:mente_saudavel/screens/paciente/paciente_home_screen.dart';
 import 'package:mente_saudavel/screens/profissional/profissional_home_screen.dart';
 import 'package:mente_saudavel/services/telemetria.dart';
+import 'package:mente_saudavel/screens/termos_screen.dart';
 import 'package:mente_saudavel/services/auth_service.dart';
+import 'package:mente_saudavel/services/consentimento_service.dart';
 import 'package:mente_saudavel/widgets/componentes.dart';
 
 Future<void> main() async {
@@ -121,14 +124,25 @@ class _AuthGateState extends State<AuthGate> {
             ),
           );
         }
-        return ValueListenableBuilder<Usuario?>(
-          valueListenable: AuthService.atual,
-          builder: (context, usuario, _) {
-            if (usuario == null) return const LoginScreen();
-            if (usuario.isProfissional) {
-              return ProfissionalHomeScreen(key: ValueKey('pro${usuario.id}'));
-            }
-            return PacienteHomeScreen(key: ValueKey('pac${usuario.id}'));
+        // 1) Primeiro acesso: aceite obrigatório dos Termos e da Política (LGPD), antes do login.
+        return ValueListenableBuilder<bool>(
+          valueListenable: Consentimento.aceitoNoAparelho,
+          builder: (context, aceitou, _) {
+            if (!aceitou) return const TermosScreen(aoAceitar: Consentimento.aceitarNoAparelho);
+            return ValueListenableBuilder<Usuario?>(
+              valueListenable: AuthService.atual,
+              builder: (context, usuario, _) {
+                if (usuario == null) return const LoginScreen();
+                // 2) Conta antiga ou textos novos: a conta precisa registrar o aceite da versão atual.
+                if (usuario.aceiteTermosVersao != kVersaoTermos) {
+                  return TermosScreen(aoAceitar: AuthService.registrarAceite);
+                }
+                if (usuario.isProfissional) {
+                  return ProfissionalHomeScreen(key: ValueKey('pro${usuario.id}'));
+                }
+                return PacienteHomeScreen(key: ValueKey('pac${usuario.id}'));
+              },
+            );
           },
         );
       },

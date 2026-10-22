@@ -15,12 +15,23 @@ class DatabaseHelper {
 
   Future<Database>? _dbFuture;
 
+  /// Só para testes: caminho do banco (use `inMemoryDatabasePath` para um banco descartável).
+  @visibleForTesting
+  static String? caminhoParaTestes;
+
+  /// Só para testes: fecha o banco aberto para o próximo teste começar do zero.
+  @visibleForTesting
+  Future<void> reiniciar() async {
+    final aberto = _dbFuture;
+    _dbFuture = null;
+    if (aberto != null) await (await aberto).close();
+  }
+
   Future<Database> get database => _dbFuture ??= _abrirBanco();
 
   Future<Database> _abrirBanco() async {
     try {
-      final pasta = await getDatabasesPath();
-      final caminho = join(pasta, _nomeBanco);
+      final caminho = caminhoParaTestes ?? join(await getDatabasesPath(), _nomeBanco);
 
       final db = await openDatabase(
         caminho,

@@ -9,6 +9,7 @@ import 'package:mente_saudavel/services/api_service.dart';
 import 'package:mente_saudavel/services/auth_service.dart';
 import 'package:mente_saudavel/utils/app_exception.dart';
 import 'package:mente_saudavel/utils/formatters.dart';
+import 'package:mente_saudavel/utils/relogio.dart';
 import 'package:mente_saudavel/widgets/componentes.dart';
 
 /// Agendamento: escolhe profissional, data, horário e modalidade.
@@ -93,7 +94,7 @@ class _AgendarSessaoScreenState extends ConsumerState<AgendarSessaoScreen> {
   }
 
   Future<void> _escolherData() async {
-    final agora = DateTime.now();
+    final agora = Relogio.agora();
     final escolhida = await showDatePicker(
       context: context,
       initialDate: _data ?? agora,
@@ -208,7 +209,7 @@ class _AgendarSessaoScreenState extends ConsumerState<AgendarSessaoScreen> {
         style: TextStyle(color: Colors.grey.shade700),
       );
     }
-    final agora = DateTime.now();
+    final agora = Relogio.agora();
     return Wrap(
       spacing: 8,
       runSpacing: 8,

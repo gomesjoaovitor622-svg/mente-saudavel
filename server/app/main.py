@@ -370,6 +370,8 @@ def create_app(settings: Settings | None = None, engine: Engine | None = None) -
             raise HTTPException(401, "Senha incorreta.")
         db.execute(delete(Humor).where(Humor.usuario_id == user.id))
         db.execute(update(Avaliacao).where(Avaliacao.paciente_id == user.id).values(comentario=""))
+        # Sessões futuras são canceladas: o profissional não deve esperar alguém que já não existe.
+        db.execute(update(Sessao).where(Sessao.paciente_id == user.id, Sessao.status == "agendada", Sessao.data_hora > datetime.now()).values(status="cancelada"))
         user.nome = "Paciente anonimizado"
         user.email = f"anonimizado-{user.id}@anonimizado.invalid"
         user.senha_hash = HASH_FALSO  # ninguém conhece a senha deste hash
@@ -568,12 +570,7 @@ def create_app(settings: Settings | None = None, engine: Engine | None = None) -
         db.commit()
         return Response(status_code=204)
 
-    @app.get("/profissional/financeiro")
-    def financeiro(user: Eu, db: Db, mes: str | None = Query(default=None, pattern=r"^\d{4}-(0[1-9]|1[0-2])$")) -> dict[str, Any]:
-        """Faturamento do mês (YYYY-MM; padrão: mês atual): recebido (concluídas) e a receber (agendadas)."""
-        exigir_perfil(user, "profissional")
-        hoje = datetime.now()
-        ano, num = (int(mes[:4]), int(mes[5:])) if mes else (hoje.year, hoje.month)
+    def faturamento_do_mes(db: Session, user: Usuario, ano: int, num: int) -> dict[str, Any]:
         inicio = datetime(ano, num, 1)
         fim = datetime(ano + (num == 12), 1 if num == 12 else num + 1, 1)
 
@@ -596,8 +593,27 @@ def create_app(settings: Settings | None = None, engine: Engine | None = None) -
             "sessoes_concluidas": concluidas,
             "a_receber_centavos": a_receber,
             "sessoes_agendadas": agendadas,
-            "valor_sessao_centavos": user.valor_sessao_centavos,
         }
+
+    @app.get("/profissional/financeiro")
+    def financeiro(user: Eu, db: Db, mes: str | None = Query(default=None, pattern=r"^\d{4}-(0[1-9]|1[0-2])$")) -> dict[str, Any]:
+        """Faturamento do mês (YYYY-MM; padrão: mês atual): recebido (concluídas) e a receber (agendadas)."""
+        exigir_perfil(user, "profissional")
+        hoje = datetime.now()
+        ano, num = (int(mes[:4]), int(mes[5:])) if mes else (hoje.year, hoje.month)
+        return {**faturamento_do_mes(db, user, ano, num), "valor_sessao_centavos": user.valor_sessao_centavos}
+
+    @app.get("/profissional/financeiro/historico")
+    def historico_financeiro(user: Eu, db: Db, meses: int = Query(default=6, ge=1, le=24)) -> list[dict[str, Any]]:
+        """Faturamento dos últimos `meses` meses (o mais recente primeiro), para a tela de histórico."""
+        exigir_perfil(user, "profissional")
+        hoje = datetime.now()
+        ano, num = hoje.year, hoje.month
+        saida: list[dict[str, Any]] = []
+        for _ in range(meses):
+            saida.append(faturamento_do_mes(db, user, ano, num))
+            ano, num = (ano - 1, 12) if num == 1 else (ano, num - 1)
+        return saida
 
     @app.get("/profissional/pacientes")
     def pacientes(user: Eu, db: Db) -> list[dict[str, Any]]:

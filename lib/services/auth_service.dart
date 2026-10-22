@@ -1,6 +1,8 @@
 import 'package:flutter/foundation.dart';
 import 'package:mente_saudavel/data/local/outbox_repository.dart';
 import 'package:mente_saudavel/database/usuario_dao.dart';
+import 'package:mente_saudavel/legal/textos_legais.dart';
+import 'package:mente_saudavel/services/consentimento_service.dart';
 import 'package:mente_saudavel/models/usuario.dart';
 import 'package:mente_saudavel/services/seguranca.dart';
 import 'package:mente_saudavel/services/api_client.dart';
@@ -19,6 +21,7 @@ class AuthService {
 
   /// Chamado na abertura do app: restaura o login salvo, se existir.
   static Future<void> carregarSessao() async {
+    await Consentimento.carregar();
     if (usaServidor) {
       // Se o servidor responder 401 em qualquer tela, volta para o login.
       ApiClient.aoExpirar = () => atual.value = null;
@@ -67,6 +70,7 @@ class AuthService {
         'email': email.trim().toLowerCase(),
         'senha': senha,
         'perfil': perfil,
+        'aceite_termos_versao': kVersaoTermos, // o aceite foi dado na tela de termos, antes do cadastro
         if (perfil == Perfil.profissional) 'registro': registro?.trim(),
         if (perfil == Perfil.profissional) 'especialidade': especialidade?.trim(),
       }));
@@ -85,6 +89,7 @@ class AuthService {
       registro: registro?.trim(),
       especialidade: especialidade?.trim(),
       criadoEm: DateTime.now().toIso8601String(),
+      aceiteTermosVersao: kVersaoTermos,
     );
     final id = await _dao.inserir(novo);
     final salvo = novo.copyWith(id: id);
@@ -179,4 +184,42 @@ class AuthService {
     await _dao.limparSessao();
     atual.value = null;
   }
+
+  /// Registra na CONTA o aceite da versão atual dos termos (quem já tinha conta antes da LGPD,
+  /// ou quando os textos mudam).
+  static Future<void> registrarAceite() async {
+    await Consentimento.aceitarNoAparelho();
+    if (usaServidor) {
+      atual.value = _doServidor(await ApiClient.post('/auth/eu/aceite', corpo: {'versao': kVersaoTermos}));
+      return;
+    }
+    final usuario = atual.value;
+    if (usuario == null) return;
+    await _dao.registrarAceite(usuario.id!, kVersaoTermos);
+    atual.value = usuario.copyWith(aceiteTermosVersao: kVersaoTermos);
+  }
+
+  /// Direito à eliminação (LGPD, art. 18): anonimiza os dados do PACIENTE e encerra a sessão.
+  /// Pede a senha para confirmar que é a própria pessoa (a ação não tem volta).
+  static Future<void> anonimizarConta(String senha) async {
+    final usuario = atual.value!;
+    if (usuario.isProfissional) {
+      throw const AppException('Profissionais usam "Excluir conta" (os pacientes dependem do histórico).');
+    }
+    if (usaServidor) {
+      await ApiClient.post('/auth/eu/anonimizar', corpo: {'senha': senha});
+      try {
+        await OutboxRepository().limparUsuario(usuario.id!); // ações pendentes dela não devem mais ser enviadas
+        await CacheKv().limpar();
+      } catch (_) {}
+      await ApiClient.limparToken();
+      atual.value = null;
+      return;
+    }
+    final resultado = await Seguranca.verificar(senha, usuario.senhaHash, usuario.salt);
+    if (resultado == ResultadoSenha.invalida) throw const AppException('Senha incorreta.');
+    await _dao.anonimizar(usuario.id!);
+    atual.value = null;
+  }
 }
+

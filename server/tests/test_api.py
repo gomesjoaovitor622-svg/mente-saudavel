@@ -517,6 +517,18 @@ def test_anonimizar_apaga_humor_e_comentario_e_bloqueia_o_acesso(client):
     assert email.endswith("@anonimizado.invalid") and "lgpd" not in email and nome == "Paciente anonimizado"
 
 
+def test_anonimizar_cancela_sessoes_futuras_e_mantem_as_concluidas(client):
+    pro, pac, _ = _paciente_com_dados(client)  # 1 sessão concluída
+    futura = _agendar(client, pac, pro["id"], futuro(72, 14)).json()["id"]
+    assert client.post("/auth/eu/anonimizar", headers=pac["h"], json={"senha": "senha-forte-1"}).status_code == 204
+    por_id = {s["id"]: s["status"] for s in client.get("/sessoes", headers=pro["h"]).json()}
+    assert por_id[futura] == "cancelada"
+    assert "concluida" in por_id.values()
+    # o horário da futura volta a ficar livre para outras pessoas
+    outro = cadastrar(client, "outro-lgpd@x.com")
+    assert _agendar(client, outro, pro["id"], futuro(72, 14)).status_code == 201
+
+
 def test_email_anonimizado_pode_ser_usado_de_novo(client):
     _, pac, _ = _paciente_com_dados(client)
     assert client.post("/auth/eu/anonimizar", headers=pac["h"], json={"senha": "senha-forte-1"}).status_code == 204
@@ -607,3 +619,29 @@ def test_metricas_desligadas_por_padrao_e_protegidas_por_token(client):
         texto = c.get("/metricas", headers={"Authorization": "Bearer token-de-metricas"}).text
     assert 'ms_http_requests_total{metodo="GET",rota="/health",status="2xx"}' in texto
     assert "ms_http_request_duration_seconds_bucket" in texto
+
+
+# ---------------------------------------------------------------- histórico de faturamento
+def test_historico_financeiro_lista_meses_com_totais(client):
+    pro = cadastrar(client, "pro-fin@x.com", "profissional")
+    assert client.patch("/auth/eu", headers=pro["h"], json={"nome": "Dra Fin", "valor_sessao_centavos": 15000}).status_code == 200
+    pac = cadastrar(client, "pac-fin@x.com")
+    sid = _agendar(client, pac, pro["id"], futuro()).json()["id"]
+    assert client.patch(f"/sessoes/{sid}", headers=pro["h"], json={"status": "concluida"}).status_code == 200
+
+    h = client.get("/profissional/financeiro/historico?meses=3", headers=pro["h"]).json()
+    assert len(h) == 3 and h[0]["mes"] > h[1]["mes"] > h[2]["mes"]  # do mais recente para o mais antigo
+    # A sessão é daqui a 48 h: pode cair neste mês ou no próximo. Confere o total no mês dela.
+    mes_da_sessao = futuro()[:7]
+    unico = client.get(f"/profissional/financeiro?mes={mes_da_sessao}", headers=pro["h"]).json()
+    assert unico["recebido_centavos"] == 15000
+    if mes_da_sessao == h[0]["mes"]:  # caiu no mês corrente: o histórico traz o mesmo valor
+        assert h[0]["recebido_centavos"] == 15000
+    else:
+        assert all(m["recebido_centavos"] == 0 for m in h)
+    assert client.get("/profissional/financeiro/historico?meses=99", headers=pro["h"]).status_code == 422
+
+
+def test_historico_financeiro_e_so_do_profissional(client):
+    pac = cadastrar(client, "pac-fin2@x.com")
+    assert client.get("/profissional/financeiro/historico", headers=pac["h"]).status_code == 403
