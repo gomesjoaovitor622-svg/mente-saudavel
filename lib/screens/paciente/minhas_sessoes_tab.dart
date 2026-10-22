@@ -4,6 +4,7 @@ import 'package:mente_saudavel/models/sessao.dart';
 import 'package:mente_saudavel/presentation/providers/sessoes_providers.dart';
 import 'package:mente_saudavel/screens/paciente/agendar_sessao_screen.dart';
 import 'package:mente_saudavel/widgets/componentes.dart';
+import 'package:mente_saudavel/widgets/medir_tela.dart';
 import 'package:mente_saudavel/widgets/sessao_sheet.dart';
 
 /// Aba "Minhas sessões" (primeira tela migrada para Riverpod).
@@ -41,7 +42,9 @@ class MinhasSessoesTab extends ConsumerWidget {
           ),
         );
 
-    return Scaffold(
+    return MedirTela(
+      nome: 'minhas_sessoes',
+      child: Scaffold(
       appBar: AppBar(title: const Text('Minhas sessões')),
       body: Column(
         children: [
@@ -110,6 +113,7 @@ class MinhasSessoesTab extends ConsumerWidget {
         icon: const Icon(Icons.add),
         label: const Text('Agendar'),
       ),
+    ),
     );
   }
 }

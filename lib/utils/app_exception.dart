@@ -12,3 +12,9 @@ class AppException implements Exception {
 class ConflitoException extends AppException {
   const ConflitoException(super.mensagem);
 }
+
+/// Falha de REDE (sem internet, servidor fora do ar, tempo esgotado). Diferente de um erro do
+/// servidor: aqui vale guardar a ação na fila offline e tentar de novo depois.
+class SemConexaoException extends AppException {
+  const SemConexaoException(super.mensagem);
+}

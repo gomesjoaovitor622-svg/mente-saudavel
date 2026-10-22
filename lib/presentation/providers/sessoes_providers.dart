@@ -3,6 +3,7 @@ import 'package:mente_saudavel/domain/repositories/sessao_repository.dart';
 import 'package:mente_saudavel/models/sessao.dart';
 import 'package:mente_saudavel/models/usuario.dart';
 import 'package:mente_saudavel/services/auth_service.dart';
+import 'package:mente_saudavel/services/telemetria.dart';
 
 /// Repositório de sessões. O valor real é injetado no `main()` (composition root, via
 /// `overrideWithValue`); nos testes basta trocar por um falso.
@@ -35,7 +36,8 @@ class MinhasSessoesNotifier extends AsyncNotifier<List<Sessao>> {
     final usuario = ref.watch(usuarioAtualProvider);
     final filtro = ref.watch(filtroSessoesProvider);
     if (usuario?.id == null) return Future.value(const <Sessao>[]);
-    return ref.watch(sessaoRepositoryProvider).doPaciente(usuario!.id!, status: filtro);
+    final repo = ref.watch(sessaoRepositoryProvider);
+    return Telemetria.medir('minhas_sessoes:dados', () => repo.doPaciente(usuario!.id!, status: filtro));
   }
 
   /// Puxar para atualizar: recarrega e só termina quando a nova lista chega.

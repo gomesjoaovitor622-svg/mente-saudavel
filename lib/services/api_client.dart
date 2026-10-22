@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:convert';
 import 'package:http/http.dart' as http;
 import 'package:flutter/foundation.dart' show kIsWeb;
+import 'package:mente_saudavel/services/telemetria.dart';
 import 'package:mente_saudavel/services/token_store.dart';
 import 'package:mente_saudavel/utils/app_exception.dart';
 import 'package:mente_saudavel/utils/build_flags.dart';
@@ -82,14 +83,19 @@ class ApiClient {
     final req = http.Request(metodo, _uri(caminho, consulta))..headers.addAll(cabecalhos);
     if (corpo != null) req.body = jsonEncode(corpo);
 
+    final relogio = Stopwatch()..start();
+    final nomeMetrica = Telemetria.normalizarCaminho(metodo, caminho);
     http.Response resposta;
     try {
       resposta = await http.Response.fromStream(await req.send().timeout(_limite));
     } on TimeoutException {
-      throw const AppException('O servidor demorou para responder. Tente novamente.');
+      Telemetria.registrarRede(nomeMetrica, relogio.elapsedMilliseconds, 0);
+      throw const SemConexaoException('O servidor demorou para responder. Tente novamente.');
     } catch (_) {
-      throw const AppException('Sem conexão com o servidor. Verifique a internet.');
+      Telemetria.registrarRede(nomeMetrica, relogio.elapsedMilliseconds, 0);
+      throw const SemConexaoException('Sem conexão com o servidor. Verifique a internet.');
     }
+    Telemetria.registrarRede(nomeMetrica, relogio.elapsedMilliseconds, resposta.statusCode);
 
     final texto = utf8.decode(resposta.bodyBytes);
     final dados = texto.isEmpty ? null : _decodificar(texto);

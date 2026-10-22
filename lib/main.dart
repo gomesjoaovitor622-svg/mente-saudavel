@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -8,23 +10,30 @@ import 'package:mente_saudavel/presentation/providers/sessoes_providers.dart';
 import 'package:mente_saudavel/screens/login_screen.dart';
 import 'package:mente_saudavel/screens/paciente/paciente_home_screen.dart';
 import 'package:mente_saudavel/screens/profissional/profissional_home_screen.dart';
+import 'package:mente_saudavel/services/telemetria.dart';
 import 'package:mente_saudavel/services/auth_service.dart';
 import 'package:mente_saudavel/widgets/componentes.dart';
 
 Future<void> main() async {
-  // Necessário antes de usar plugins nativos (como o sqflite).
-  WidgetsFlutterBinding.ensureInitialized();
-  // Celular: não faz nada. Web: ativa o SQLite do navegador.
-  await configurarBanco();
-  // Composition root: escolhe UMA vez entre SQLite local e API.
-  Dependencias.configurar(Dependencias.producao());
-  runApp(
-    ProviderScope(
-      // Os providers recebem do composition root o repositório escolhido (SQLite ou API).
-      overrides: [sessaoRepositoryProvider.overrideWithValue(Dependencias.instancia.sessoes)],
-      child: const MenteSaudavelApp(),
-    ),
-  );
+  // Erros que escapam de tudo (código assíncrono sem try/catch) caem aqui e viram telemetria.
+  await runZonedGuarded(() async {
+    // Necessário antes de usar plugins nativos (como o sqflite).
+    WidgetsFlutterBinding.ensureInitialized();
+    // Captura global de erros (FlutterError e PlatformDispatcher) + envio periódico dos eventos.
+    Telemetria.instalar();
+    Telemetria.iniciarEnvioPeriodico();
+    // Celular: não faz nada. Web: ativa o SQLite do navegador.
+    await configurarBanco();
+    // Composition root: escolhe UMA vez entre SQLite local e API.
+    Dependencias.configurar(Dependencias.producao());
+    runApp(
+      ProviderScope(
+        // Os providers recebem do composition root o repositório escolhido (SQLite ou API).
+        overrides: [sessaoRepositoryProvider.overrideWithValue(Dependencias.instancia.sessoes)],
+        child: const MenteSaudavelApp(),
+      ),
+    );
+  }, (erro, pilha) => Telemetria.registrarErro(erro, pilha, origem: 'runZonedGuarded'));
 }
 
 class MenteSaudavelApp extends StatelessWidget {
