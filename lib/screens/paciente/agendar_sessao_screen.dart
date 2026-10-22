@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
-import 'package:mente_saudavel/app/dependencias.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:mente_saudavel/presentation/providers/sessoes_providers.dart';
 import 'package:mente_saudavel/domain/repositories/sessao_repository.dart';
 import 'package:mente_saudavel/database/usuario_dao.dart';
 import 'package:mente_saudavel/models/sessao.dart';
@@ -12,21 +13,21 @@ import 'package:mente_saudavel/widgets/componentes.dart';
 
 /// Agendamento: escolhe profissional, data, horário e modalidade.
 /// Os horários já ocupados vêm do banco; os feriados vêm da BrasilAPI.
-class AgendarSessaoScreen extends StatefulWidget {
+class AgendarSessaoScreen extends ConsumerStatefulWidget {
   /// Se informado, o profissional já vem escolhido (vindo da busca).
   final int? profissionalId;
 
   const AgendarSessaoScreen({super.key, this.profissionalId});
 
   @override
-  State<AgendarSessaoScreen> createState() => _AgendarSessaoScreenState();
+  ConsumerState<AgendarSessaoScreen> createState() => _AgendarSessaoScreenState();
 }
 
-class _AgendarSessaoScreenState extends State<AgendarSessaoScreen> {
+class _AgendarSessaoScreenState extends ConsumerState<AgendarSessaoScreen> {
   static const List<int> _horarios = [8, 9, 10, 11, 13, 14, 15, 16, 17, 18];
 
   final UsuarioDao _usuarioDao = UsuarioDao();
-  final SessaoRepository _sessaoDao = Dependencias.instancia.sessoes;
+  SessaoRepository get _sessaoDao => ref.read(sessaoRepositoryProvider);
 
   List<Usuario> _profissionais = [];
   Usuario? _profissional;
@@ -140,6 +141,7 @@ class _AgendarSessaoScreenState extends State<AgendarSessaoScreen> {
         modalidade: _modalidade,
       );
       if (!mounted) return;
+      ref.invalidate(minhasSessoesProvider); // a aba "Minhas sessões" recarrega sozinha
       mostrarMensagem(context, 'Sessão agendada com sucesso!');
       Navigator.pop(context, true);
     } on ConflitoException catch (e) {

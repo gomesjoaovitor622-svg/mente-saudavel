@@ -1,8 +1,10 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_localizations/flutter_localizations.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:mente_saudavel/app/dependencias.dart';
 import 'package:mente_saudavel/database/database_factory_setup.dart';
 import 'package:mente_saudavel/models/usuario.dart';
+import 'package:mente_saudavel/presentation/providers/sessoes_providers.dart';
 import 'package:mente_saudavel/screens/login_screen.dart';
 import 'package:mente_saudavel/screens/paciente/paciente_home_screen.dart';
 import 'package:mente_saudavel/screens/profissional/profissional_home_screen.dart';
@@ -16,7 +18,13 @@ Future<void> main() async {
   await configurarBanco();
   // Composition root: escolhe UMA vez entre SQLite local e API.
   Dependencias.configurar(Dependencias.producao());
-  runApp(const MenteSaudavelApp());
+  runApp(
+    ProviderScope(
+      // Os providers recebem do composition root o repositório escolhido (SQLite ou API).
+      overrides: [sessaoRepositoryProvider.overrideWithValue(Dependencias.instancia.sessoes)],
+      child: const MenteSaudavelApp(),
+    ),
+  );
 }
 
 class MenteSaudavelApp extends StatelessWidget {

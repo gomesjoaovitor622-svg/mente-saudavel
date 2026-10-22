@@ -120,6 +120,15 @@ def fluxo_paciente(page: Page) -> None:
     ver(page, "Buscar")
     ok("login do paciente entra no app")
 
+    # Sessão por cookie HttpOnly: o JavaScript da página não enxerga o token e o login sobrevive ao recarregar.
+    assert "ms_sessao" not in page.evaluate("document.cookie"), "cookie de sessão está legível pelo JavaScript"
+    assert "ms_token" not in page.evaluate("JSON.stringify(localStorage)"), "token guardado no localStorage"
+    page.reload(wait_until="load")
+    page.wait_for_selector("flt-glass-pane", state="attached", timeout=60_000)
+    page.locator("flt-semantics-placeholder").dispatch_event("click")
+    ver(page, "Buscar", 60_000)
+    ok("cookie HttpOnly mantém o login ao recarregar (sem token no JavaScript)")
+
     tocar(page, "Buscar")
     ver(page, "Dra. Helena Marques")
     ver(page, "Dr. Rafael Andrade")
@@ -292,6 +301,11 @@ def main() -> int:
             else:
                 opcoes.update(viewport={"width": 1100, "height": 800})
             ctx = browser.new_context(**opcoes)
+            # Registra qualquer bloqueio da Política de Segurança de Conteúdo (CSP) da página.
+            ctx.add_init_script(
+                "window.__csp = []; document.addEventListener('securitypolicyviolation', e => "
+                "window.__csp.push(e.violatedDirective + ' <- ' + (e.blockedURI || 'inline')));"
+            )
             page = ctx.new_page()
             erros_console: list[str] = []
             page.on(
@@ -305,6 +319,9 @@ def main() -> int:
             print(f"== fluxo: {nome}", flush=True)
             try:
                 fluxo(page)
+                violacoes = page.evaluate("window.__csp || []")
+                assert not violacoes, f"CSP bloqueou recursos: {sorted(set(violacoes))[:8]}"
+                ok(f"nenhuma violação de CSP no fluxo {nome}")
             except (PWTimeout, AssertionError) as exc:
                 page.screenshot(path=str(SHOTS / f"falha-{nome}.png"))
                 arvore = page.evaluate("document.querySelector('flt-semantics-host')?.innerText || '(sem árvore de acessibilidade)'")
