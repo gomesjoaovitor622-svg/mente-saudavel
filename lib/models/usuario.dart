@@ -15,6 +15,7 @@ class Usuario {
   final String? endereco; // consultório (somente profissional)
   final int? valorSessaoCentavos; // preço da sessão em centavos (somente profissional, modo servidor)
   final String criadoEm;
+  final String? aceiteTermosVersao; // LGPD: versão dos Termos/Política que a pessoa aceitou
 
   const Usuario({
     this.id,
@@ -28,6 +29,7 @@ class Usuario {
     this.endereco,
     this.valorSessaoCentavos,
     required this.criadoEm,
+    this.aceiteTermosVersao,
   });
 
   bool get isProfissional => perfil == Perfil.profissional;
@@ -45,6 +47,7 @@ class Usuario {
       'endereco': endereco,
       'valor_sessao_centavos': valorSessaoCentavos,
       'criado_em': criadoEm,
+      'aceite_termos_versao': aceiteTermosVersao,
     };
   }
 
@@ -61,6 +64,7 @@ class Usuario {
       endereco: map['endereco'] as String?,
       valorSessaoCentavos: (map['valor_sessao_centavos'] as num?)?.toInt(),
       criadoEm: (map['criado_em'] as String?) ?? '',
+      aceiteTermosVersao: map['aceite_termos_versao'] as String?,
     );
   }
 
@@ -73,6 +77,7 @@ class Usuario {
     String? especialidade,
     String? endereco,
     int? valorSessaoCentavos,
+    String? aceiteTermosVersao,
   }) {
     return Usuario(
       id: id ?? this.id,
@@ -86,6 +91,7 @@ class Usuario {
       endereco: endereco ?? this.endereco,
       valorSessaoCentavos: valorSessaoCentavos ?? this.valorSessaoCentavos,
       criadoEm: criadoEm,
+      aceiteTermosVersao: aceiteTermosVersao ?? this.aceiteTermosVersao,
     );
   }
 }

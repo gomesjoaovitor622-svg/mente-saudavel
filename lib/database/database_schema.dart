@@ -17,7 +17,10 @@ class DatabaseSchema {
       especialidade  TEXT,
       endereco       TEXT,
       valor_sessao_centavos INTEGER,
-      criado_em      TEXT NOT NULL
+      criado_em      TEXT NOT NULL,
+      aceite_termos_versao TEXT,
+      aceite_termos_em     TEXT,
+      anonimizado_em       TEXT
     )
   ''';
 
@@ -33,6 +36,32 @@ class DatabaseSchema {
       anotacoes        TEXT,
       valor_centavos   INTEGER NOT NULL DEFAULT 0,
       criado_em        TEXT NOT NULL
+    )
+  ''';
+
+  // v4: fila de ações feitas sem internet (Outbox Pattern). `chave` é a chave de idempotência
+  // enviada ao servidor: reenviar a mesma ação nunca a duplica.
+  static const String outbox = '''
+    CREATE TABLE IF NOT EXISTS outbox (
+      id          INTEGER PRIMARY KEY AUTOINCREMENT,
+      usuario_id  INTEGER NOT NULL,
+      tipo        TEXT NOT NULL CHECK (tipo IN ('agendar', 'status', 'remarcar')),
+      payload     TEXT NOT NULL,
+      chave       TEXT NOT NULL UNIQUE,
+      estado      TEXT NOT NULL DEFAULT 'pendente' CHECK (estado IN ('pendente', 'conflito', 'falhou')),
+      tentativas  INTEGER NOT NULL DEFAULT 0,
+      ultimo_erro TEXT,
+      criado_em   TEXT NOT NULL
+    )
+  ''';
+  static const String idxOutbox = 'CREATE INDEX IF NOT EXISTS idx_outbox_usuario ON outbox (usuario_id, id)';
+
+  // v4: última resposta do servidor (para ler sem internet). Apagado no logout.
+  static const String cacheKv = '''
+    CREATE TABLE IF NOT EXISTS cache_kv (
+      chave          TEXT PRIMARY KEY,
+      valor          TEXT NOT NULL,
+      atualizado_em  TEXT NOT NULL
     )
   ''';
 
@@ -88,11 +117,14 @@ class DatabaseSchema {
     _sessoes,
     _humor,
     avaliacoes,
+    outbox,
+    cacheKv,
     _appSessao,
     _idxSessoesProfissional,
     _idxSessoesPaciente,
     _idxHumor,
     idxAvaliacoes,
+    idxOutbox,
     idxSessaoProfissionalUnico,
     idxSessaoPacienteUnico,
   ];

@@ -1,6 +1,7 @@
 import 'dart:io';
 
 import 'package:mente_saudavel/database/database_schema.dart';
+import 'package:mente_saudavel/database/migracoes.dart';
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 
 /// Banco SQLite de verdade (arquivo temporário) para os testes, sem celular nem emulador.
@@ -19,7 +20,7 @@ Future<Database> abrirBancoNovo([String? caminho]) async {
   return databaseFactory.openDatabase(
     caminho ?? inMemoryDatabasePath,
     options: OpenDatabaseOptions(
-      version: 3,
+      version: Migracoes.versaoAtual,
       onConfigure: (db) => db.execute('PRAGMA foreign_keys = ON'),
       onCreate: (db, _) => DatabaseSchema.criarTudo(db),
     ),
