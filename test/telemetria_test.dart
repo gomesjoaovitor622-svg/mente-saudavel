@@ -1,4 +1,3 @@
-import 'dart:ui' show PlatformDispatcher;
 
 import 'package:flutter/foundation.dart';
 import 'package:flutter_test/flutter_test.dart';

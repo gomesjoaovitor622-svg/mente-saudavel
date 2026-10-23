@@ -10,9 +10,13 @@ Falhas viram anotações `::error::` no GitHub e deixam capturas de tela na past
 from __future__ import annotations
 
 import datetime as dt
+import json
 import re
+import ssl
 import sys
 import time
+import urllib.error
+import urllib.request
 from pathlib import Path
 from urllib.parse import urlsplit
 from zoneinfo import ZoneInfo
@@ -100,7 +104,13 @@ def abrir_site(page: Page) -> None:
     page.wait_for_selector("flt-glass-pane", state="attached", timeout=60_000)
     # Liga a acessibilidade do Flutter (botão invisível fora da tela).
     page.locator("flt-semantics-placeholder").dispatch_event("click")
+    # LGPD: no primeiro acesso o aceite dos Termos e da Política é obrigatório, ANTES do login.
+    ver(page, "Aceitar e continuar", 60_000)
+    assert page.get_by_role("button", name="Aceitar e continuar").first.is_disabled(), "botão de aceite deveria começar desabilitado"
+    tocar(page, "Li e aceito")
+    tocar(page, "Aceitar e continuar")
     ver(page, "Entrar", 60_000)
+    ok("primeiro acesso exige o aceite dos Termos e da Política (LGPD)")
 
 
 def fluxo_paciente(page: Page) -> None:
@@ -242,6 +252,66 @@ def fluxo_acoes_paciente(page: Page) -> None:
     ok("cancelar sessão")
 
 
+def api(metodo: str, caminho: str, corpo: dict | None = None, token: str | None = None) -> tuple[int, dict | list | None]:
+    """Chama a API direto (como outro usuário, em paralelo ao navegador)."""
+    cab = {"Content-Type": "application/json"}
+    if token:
+        cab["Authorization"] = f"Bearer {token}"
+    req = urllib.request.Request(f"{BASE}/api{caminho}", method=metodo, headers=cab, data=json.dumps(corpo).encode() if corpo is not None else None)
+    try:
+        with urllib.request.urlopen(req, context=ssl._create_unverified_context(), timeout=20) as r:  # noqa: S310 (certificado de teste do Caddy)
+            texto = r.read().decode()
+            return r.status, json.loads(texto) if texto else None
+    except urllib.error.HTTPError as e:
+        texto = e.read().decode()
+        return e.code, json.loads(texto) if texto else None
+
+
+def fluxo_conflito(page: Page) -> None:
+    """Conflito de horário (HTTP 409): outra pessoa pega o horário enquanto o paciente está na tela."""
+    abrir_site(page)
+    digitar(page, "E-mail", "carlos@email.com")
+    digitar(page, "Senha", "123456")
+    tocar(page, "Entrar")
+    ver(page, "Buscar")
+    tocar(page, "Sessões")
+    tocar(page, "Agendar")
+    ver(page, "Agendar sessão")
+    tocar(page, "Dr. Rafael Andrade")
+    tocar(page, "Escolher data")
+    dia = HOJE() + dt.timedelta(days=2)
+    if dia.month != HOJE().month:
+        tocar(page, "Próximo mês")
+    page.get_by_role("button", name=re.compile(rf"^{dia.day}\b")).first.click(timeout=TIMEOUT)
+    tocar(page, "OK")
+    ver(page, "14:00")
+    tocar(page, "14:00")
+    ok("paciente escolheu o horário das 14:00")
+
+    # Enquanto a tela está aberta, outra pessoa agenda o MESMO horário com o mesmo profissional.
+    email = f"rival{int(time.time())}@teste.com"
+    status, _ = api("POST", "/auth/cadastro", {"nome": "Rival Teste", "email": email, "senha": "senhasegura1", "perfil": "paciente", "aceite_termos_versao": "teste"})
+    assert status == 201, f"cadastro do rival: HTTP {status}"
+    _, login = api("POST", "/auth/entrar", {"email": email, "senha": "senhasegura1"})
+    token = login["token"]  # type: ignore[index]
+    _, profissionais = api("GET", "/profissionais", token=token)
+    rafael = next(p for p in profissionais if "Rafael" in p["nome"])  # type: ignore[union-attr]
+    status, _ = api("POST", "/sessoes", {"profissional_id": rafael["id"], "data_hora": f"{dia.isoformat()}T14:00:00", "modalidade": "Online"}, token)
+    assert status == 201, f"rival não conseguiu agendar: HTTP {status}"
+    ok("outra pessoa ocupou o mesmo horário (pela API)")
+
+    tocar(page, "Confirmar agendamento")
+    ver(page, "já tem uma sessão")  # mensagem do HTTP 409, mostrada pelo app
+    ok("conflito 409: o app avisa que o horário foi ocupado")
+    assert "Sessão agendada com sucesso" not in page.evaluate("document.querySelector('flt-semantics-host')?.innerText || ''"), "agendou mesmo com conflito"
+
+    # O horário ocupado some das opções e outro horário funciona.
+    tocar(page, "15:00")
+    tocar(page, "Confirmar agendamento")
+    ver(page, "Sessão agendada com sucesso")
+    ok("depois do conflito, outro horário é agendado e a lista atualiza")
+
+
 def fluxo_cadastro_novo(page: Page) -> None:
     """Cria uma conta de paciente pelo site, usa o app e exclui a conta."""
     email = f"e2e{int(time.time())}@teste.com"
@@ -292,6 +362,7 @@ def main() -> int:
             ("profissional", fluxo_cadastro_e_profissional, False),
             ("acoes", fluxo_acoes_paciente, False),
             ("cadastro", fluxo_cadastro_novo, False),
+            ("conflito", fluxo_conflito, False),
             ("celular", fluxo_celular, True),
         )
         for nome, fluxo, celular in fluxos:
