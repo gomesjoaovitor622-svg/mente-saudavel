@@ -14,3 +14,6 @@ const String kApiUrl = String.fromEnvironment('API_URL');
 
 /// `true` quando o app conversa com o servidor em vez do SQLite local.
 const bool usaServidor = kApiUrl != '';
+
+/// Versão do app, para aparecer na telemetria. O CI passa `--dart-define=APP_VERSION=<tag ou commit>`.
+const String kAppVersao = String.fromEnvironment('APP_VERSION', defaultValue: 'dev');

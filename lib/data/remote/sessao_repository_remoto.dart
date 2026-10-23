@@ -17,13 +17,16 @@ class SessaoRepositoryRemoto implements SessaoRepository {
     required int profissionalId,
     required DateTime dataHora,
     required String modalidade,
+    String? chaveIdempotencia,
   }) async {
     // O paciente é o usuário do token: o servidor ignora qualquer outro id.
-    final r = await ApiClient.post('/sessoes', corpo: {
-      'profissional_id': profissionalId,
-      'data_hora': dataHora.toIso8601String(),
-      'modalidade': modalidade,
-    }) as Map<String, dynamic>;
+    final r = await ApiClient.post('/sessoes',
+        chaveIdempotencia: chaveIdempotencia,
+        corpo: {
+          'profissional_id': profissionalId,
+          'data_hora': dataHora.toIso8601String(),
+          'modalidade': modalidade,
+        }) as Map<String, dynamic>;
     return r['id'] as int;
   }
 

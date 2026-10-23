@@ -21,6 +21,7 @@ class CadastroIn(_Base):
     perfil: Perfil
     registro: str | None = Field(default=None, max_length=40)
     especialidade: str | None = Field(default=None, max_length=120)
+    aceite_termos_versao: str | None = Field(default=None, min_length=1, max_length=20)  # aceite dado no próprio cadastro
 
 
 class EntrarIn(_Base):
@@ -51,6 +52,7 @@ class UsuarioOut(BaseModel):
     endereco: str | None = None
     valor_sessao_centavos: int | None = None
     criado_em: str
+    aceite_termos_versao: str | None = None
 
 
 class AuthOut(BaseModel):
@@ -95,3 +97,28 @@ class AvaliacaoIn(_Base):
     @classmethod
     def _limpa(cls, v: str) -> str:
         return v.strip()
+
+
+class AceiteIn(_Base):
+    versao: str = Field(min_length=1, max_length=20)
+
+
+class AnonimizarIn(_Base):
+    senha: str = Field(min_length=1, max_length=128)  # confirma que é a própria pessoa (ação irreversível)
+
+
+class EventoCliente(_Base):
+    """Evento de telemetria do app. Sem identificador de pessoa: só o que ajuda a achar o problema."""
+
+    tipo: Literal["erro", "rede", "tela"]
+    nome: str = Field(min_length=1, max_length=80)
+    duracao_ms: int | None = Field(default=None, ge=0, le=3_600_000)
+    status: int | None = Field(default=None, ge=0, le=999)
+    mensagem: str | None = Field(default=None, max_length=300)
+    pilha: str | None = Field(default=None, max_length=4000)
+
+
+class TelemetriaIn(_Base):
+    versao_app: str | None = Field(default=None, max_length=20)
+    plataforma: str | None = Field(default=None, max_length=20)
+    eventos: list[EventoCliente] = Field(min_length=1, max_length=20)

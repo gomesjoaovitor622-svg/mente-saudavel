@@ -1,12 +1,16 @@
 import 'dart:io';
 
 import 'package:mente_saudavel/database/database_schema.dart';
+import 'package:mente_saudavel/database/migracoes.dart';
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 
 /// Banco SQLite de verdade (arquivo temporário) para os testes, sem celular nem emulador.
-void iniciarSqliteDeTeste() {
+///
+/// [semIsolate]: use `true` em `testWidgets`. O modo padrão roda o SQLite em outro isolate (tempo real),
+/// que o relógio falso do `testWidgets` não consegue esperar; sem isolate tudo roda no mesmo fluxo.
+void iniciarSqliteDeTeste({bool semIsolate = false}) {
   sqfliteFfiInit();
-  databaseFactory = databaseFactoryFfi;
+  databaseFactory = semIsolate ? databaseFactoryFfiNoIsolate : databaseFactoryFfi;
 }
 
 Future<String> caminhoTemporario() async {
@@ -19,7 +23,7 @@ Future<Database> abrirBancoNovo([String? caminho]) async {
   return databaseFactory.openDatabase(
     caminho ?? inMemoryDatabasePath,
     options: OpenDatabaseOptions(
-      version: 3,
+      version: Migracoes.versaoAtual,
       onConfigure: (db) => db.execute('PRAGMA foreign_keys = ON'),
       onCreate: (db, _) => DatabaseSchema.criarTudo(db),
     ),

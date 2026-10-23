@@ -63,10 +63,12 @@ void main() {
     );
   }
 
-  test('v2 -> v3 acrescenta as colunas de preço sem perder dados', () async {
+  test('v2 -> atual acrescenta colunas (preço, LGPD) e tabelas (outbox) sem perder dados', () async {
     final db = await bancoV2ComDados(await caminhoTemporario());
     expect(await _colunas(db, 'usuarios'), contains('valor_sessao_centavos'));
     expect(await _colunas(db, 'sessoes'), contains('valor_centavos'));
+    expect(await _colunas(db, 'usuarios'), containsAll(['aceite_termos_versao', 'aceite_termos_em', 'anonimizado_em']));
+    expect(await _colunas(db, 'outbox'), containsAll(['payload', 'chave', 'estado']));
     expect(await db.query('usuarios'), hasLength(3));
     final sessoes = await db.query('sessoes', orderBy: 'id');
     expect(sessoes, hasLength(2));
@@ -86,7 +88,7 @@ void main() {
   test('banco migrado e banco novo ficam com as MESMAS colunas e índices', () async {
     final migrado = await bancoV2ComDados(await caminhoTemporario());
     final novo = await abrirBancoNovo();
-    for (final tabela in ['usuarios', 'sessoes', 'avaliacoes', 'humor_registros']) {
+    for (final tabela in ['usuarios', 'sessoes', 'avaliacoes', 'outbox', 'cache_kv', 'humor_registros']) {
       if (tabela == 'humor_registros') continue; // não existia no v2 de teste
       expect(await _colunas(migrado, tabela), await _colunas(novo, tabela), reason: tabela);
     }
@@ -97,14 +99,14 @@ void main() {
 
   test('migração é repetível: rodar de novo não falha nem duplica coluna', () async {
     final db = await bancoV2ComDados(await caminhoTemporario());
-    await Migracoes.atualizar(db, 2, 3);
+    await Migracoes.atualizar(db, 2, Migracoes.versaoAtual);
     expect((await _colunas(db, 'sessoes')).where((c) => c == 'valor_centavos'), hasLength(1));
     await db.close();
   });
 
   test('versão sem passo escrito falha de forma explícita (e a transação desfaz tudo)', () async {
     final db = await abrirBancoNovo();
-    await expectLater(() => Migracoes.atualizar(db, 3, 4), throwsStateError);
+    await expectLater(() => Migracoes.atualizar(db, Migracoes.versaoAtual, Migracoes.versaoAtual + 1), throwsStateError);
     await db.close();
   });
 }
