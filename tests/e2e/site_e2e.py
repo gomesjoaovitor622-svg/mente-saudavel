@@ -94,6 +94,23 @@ def digitar(page: Page, rotulo: str, valor: str) -> None:
     raise AssertionError(f"campo {rotulo!r}: digitado {len(valor)} caracteres, ficou com {len(atual or '')}")
 
 
+def ver_ou_aceitar(page: Page, esperado: str, timeout: int = 30_000) -> None:
+    """Espera `esperado` na tela. Contas sem aceite gravado (ex.: as de demonstração) veem antes a tela
+    de aceite dos Termos: aceita e segue, como uma pessoa faria (LGPD: o aceite é por conta)."""
+    fim = time.time() + timeout / 1000
+    aceitou = False
+    while time.time() < fim:
+        if page.locator(f'[aria-label*="{esperado}"], flt-semantics:has-text("{esperado}")').count() > 0:
+            return
+        if not aceitou and page.locator('[aria-label*="Aceitar e continuar"], flt-semantics:has-text("Aceitar e continuar")').count() > 0:
+            tocar(page, "Li e aceito")
+            tocar(page, "Aceitar e continuar")
+            aceitou = True
+            ok("conta sem aceite registrado pede o aceite após o login (LGPD)")
+        page.wait_for_timeout(500)
+    ver(page, esperado, 2_000)  # estoura com a mensagem padrão de timeout
+
+
 def ok(nome: str) -> None:
     etapas.append(nome)
     print(f"  ok  {nome}", flush=True)
@@ -127,7 +144,7 @@ def fluxo_paciente(page: Page) -> None:
     # Login correto.
     digitar(page, "Senha", "123456")
     tocar(page, "Entrar")
-    ver(page, "Buscar")
+    ver_ou_aceitar(page, "Buscar")
     ok("login do paciente entra no app")
 
     # Sessão por cookie HttpOnly: o JavaScript da página não enxerga o token e o login sobrevive ao recarregar.
@@ -184,7 +201,7 @@ def fluxo_cadastro_e_profissional(page: Page) -> None:
     digitar(page, "E-mail", "helena@mentesaudavel.app")
     digitar(page, "Senha", "mente123")
     tocar(page, "Entrar")
-    ver(page, "Painel do Profissional")
+    ver_ou_aceitar(page, "Painel do Profissional")
     ok("login do profissional abre o painel")
     ver(page, "avaliação média")
     ok("painel mostra a avaliação média")
@@ -207,7 +224,7 @@ def entrar(page: Page, email: str, senha: str, aguardar: str) -> None:
     digitar(page, "E-mail", email)
     digitar(page, "Senha", senha)
     tocar(page, "Entrar")
-    ver(page, aguardar)
+    ver_ou_aceitar(page, aguardar)
 
 
 def fluxo_acoes_paciente(page: Page) -> None:
@@ -322,7 +339,7 @@ def fluxo_conflito(page: Page) -> None:
     digitar(page, "E-mail", "carlos@email.com")
     digitar(page, "Senha", "123456")
     tocar(page, "Entrar")
-    ver(page, "Buscar")
+    ver_ou_aceitar(page, "Buscar")
     tocar(page, "Sessões")
     tocar(page, "Agendar")
     ver(page, "Agendar sessão")
@@ -372,7 +389,7 @@ def fluxo_cadastro_novo(page: Page) -> None:
     digitar(page, "Seu nome", "Pessoa de Teste")
     tocar(page, "Continuar")
     tocar(page, "Paciente")
-    ver(page, "Buscar")
+    ver_ou_aceitar(page, "Buscar")
     ok("cadastro de nova conta de paciente entra no app")
     tocar(page, "Perfil")
     ver(page, email)  # o nome fica dentro de um campo de texto (sem rótulo); o e-mail aparece como texto
