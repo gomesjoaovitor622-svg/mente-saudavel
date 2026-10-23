@@ -50,4 +50,7 @@ jobs:
         run: sudo apt-get install -y --no-install-recommends libsqlite3-dev
 
       - name: Testes do app (formatadores, migrações, repositório e token)
-        run: flutter test --no-pub --reporter github
+        run: |
+          set +e
+          flutter test --no-pub --reporter json 2>&1 | tee "$RUNNER_TEMP/testes.json" | python3 tools/flutter_test_annotations.py
+          exit "${PIPESTATUS[0]}"
