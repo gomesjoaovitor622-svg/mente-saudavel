@@ -17,6 +17,15 @@ import 'helpers/banco_de_teste.dart';
 
 /// Fluxo crítico de ponta a ponta no app (banco SQLite real em memória, telas reais):
 /// login com senha robusta -> agendar -> conflito (409) -> lista atualizada pelo provider.
+/// O SQLite não avança dentro do relógio falso do `testWidgets`: intercala tempo REAL (para o banco
+/// responder) com quadros da interface, como se a pessoa esperasse a tela assentar.
+Future<void> assentar(WidgetTester t, {int rodadas = 14}) async {
+  for (var i = 0; i < rodadas; i++) {
+    await t.runAsync(() => Future<void>.delayed(const Duration(milliseconds: 25)));
+    await t.pump(const Duration(milliseconds: 100));
+  }
+}
+
 void main() {
   setUpAll(() => iniciarSqliteDeTeste(semIsolate: true));
 
@@ -76,45 +85,44 @@ void main() {
         child: const MaterialApp(home: MinhasSessoesTab()),
       ),
     );
-    await t.pumpAndSettle();
+    await assentar(t);
     expect(find.textContaining('Nenhuma sessão encontrada'), findsOneWidget);
 
     // Abre "Agendar", escolhe a profissional, a data (hoje, fixado) e as 10:00.
     await t.tap(find.text('Agendar'));
-    await t.pumpAndSettle();
+    await assentar(t);
     await t.tap(find.text(profissional.nome));
-    await t.pumpAndSettle();
+    await assentar(t);
     await t.tap(find.text('Escolher data'));
-    await t.pumpAndSettle();
+    await assentar(t);
     await t.tap(find.text('OK'));
-    await t.pumpAndSettle();
+    await assentar(t);
     await t.tap(find.text('10:00'));
-    await t.pumpAndSettle();
+    await assentar(t);
 
     // Enquanto a tela está aberta, outra pessoa agenda o MESMO horário (corrida real).
-    await repo.agendar(
-      pacienteId: rival.id!,
-      profissionalId: profissional.id!,
-      dataHora: DateTime(quando.ano, quando.mes, quando.dia, 10),
-      modalidade: 'Online',
-    );
+    await t.runAsync(() => repo.agendar(
+          pacienteId: rival.id!,
+          profissionalId: profissional.id!,
+          dataHora: DateTime(quando.ano, quando.mes, quando.dia, 10),
+          modalidade: 'Online',
+        ));
 
     // Confirmar -> ConflitoException (o mesmo caminho do HTTP 409): mensagem na tela, nada gravado para a Ana.
     await t.tap(find.text('Confirmar agendamento'));
-    await t.pump();
-    await t.pump(const Duration(milliseconds: 400));
+    await assentar(t, rodadas: 6); // curto: a mensagem (SnackBar) some depois de ~4 s
     expect(find.textContaining('já tem uma sessão'), findsOneWidget);
     expect(find.text('Agendar sessão'), findsOneWidget); // continua na tela de agendar
-    expect(await repo.doPaciente(ana.id!), isEmpty);
+    expect(await t.runAsync(() => repo.doPaciente(ana.id!)), isEmpty);
 
     // Outro horário (11:00) funciona; ao voltar, o provider recarrega e a lista mostra a sessão nova.
     await t.tap(find.text('11:00'));
-    await t.pumpAndSettle();
+    await assentar(t);
     await t.tap(find.text('Confirmar agendamento'));
-    await t.pumpAndSettle();
+    await assentar(t);
     expect(find.text('Agendar sessão'), findsNothing); // voltou para "Minhas sessões"
     expect(find.text(profissional.nome), findsOneWidget); // cartão da sessão nova, sem recarregar à mão
     expect(find.textContaining('Nenhuma sessão encontrada'), findsNothing);
-    expect(await repo.doPaciente(ana.id!), hasLength(1));
+    expect(await t.runAsync(() => repo.doPaciente(ana.id!)), hasLength(1));
   });
 }
