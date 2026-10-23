@@ -19,6 +19,7 @@ def main() -> int:
     nomes: dict[int, str] = {}
     arquivos: dict[int, str] = {}
     erros: dict[int, list[str]] = {}
+    impressos: dict[int, list[str]] = {}
     total = falhas = 0
     for linha in sys.stdin:
         try:
@@ -34,12 +35,16 @@ def main() -> int:
             total += 1
             if ev.get("result") != "success" and not ev.get("skipped"):
                 falhas += 1
+        elif tipo == "print":
+            impressos.setdefault(ev["testID"], []).append(ev.get("message", ""))
         elif tipo == "error":
             erros.setdefault(ev["testID"], []).append(ev.get("error", ""))
     for tid, msgs in erros.items():
         arq = arquivos.get(tid, "")
         nome = nomes.get(tid, "?")
-        print(f"::error title=Teste falhou ({arq or 'test'})::{limpar(nome, 160)} :: {limpar(msgs[0])}")
+        # O erro do widget tester costuma estar nas mensagens impressas ("EXCEPTION CAUGHT BY ...").
+        detalhe = limpar(" | ".join(impressos.get(tid, [])) or msgs[0], 1500)
+        print(f"::error title=Teste falhou ({arq or 'test'})::{limpar(nome, 160)} :: {detalhe}")
     print(f"resumo: {total} testes, {falhas} falharam")
     return 0
 

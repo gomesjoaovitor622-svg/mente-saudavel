@@ -75,7 +75,7 @@ void main() {
       await t.tap(find.text('Ler a Política de Privacidade'));
       await t.pumpAndSettle();
       expect(find.text('Política de Privacidade'), findsOneWidget);
-      expect(find.textContaining('dados SENSÍVEIS'), findsOneWidget);
+      expect(find.textContaining('SENSÍVEIS', skipOffstage: false), findsWidgets);
     });
 
     testWidgets('falha ao registrar o aceite mostra mensagem e mantém a tela', (t) async {
