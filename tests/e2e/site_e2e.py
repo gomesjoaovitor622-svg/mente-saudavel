@@ -138,6 +138,18 @@ def fluxo_paciente(page: Page) -> None:
     page.locator("flt-semantics-placeholder").dispatch_event("click")
     ver(page, "Buscar", 60_000)
     ok("cookie HttpOnly mantém o login ao recarregar (sem token no JavaScript)")
+    registrou = False
+    for _ in range(20):  # o Service Worker do Flutter registra logo após o carregamento
+        registrou = page.evaluate("navigator.serviceWorker ? navigator.serviceWorker.getRegistration().then(r => !!r) : false")
+        if registrou:
+            break
+        page.wait_for_timeout(1000)
+    if registrou:
+        ok("Service Worker registrado (PWA com cache offline)")
+    else:
+        # Aviso, não reprovação: versões novas do Flutter estão aposentando o Service Worker padrão, e o
+        # app continua instalável (manifest + HTTPS). O cache offline dos dados é feito pelo Outbox/cache local.
+        print("::warning title=PWA::Service Worker não registrado: sem cache offline dos arquivos do site")
 
     tocar(page, "Buscar")
     ver(page, "Dra. Helena Marques")
@@ -267,6 +279,43 @@ def api(metodo: str, caminho: str, corpo: dict | None = None, token: str | None 
         return e.code, json.loads(texto) if texto else None
 
 
+def baixar(caminho: str) -> tuple[int, dict[str, str], bytes]:
+    """GET direto no site (sem navegador): status, cabeçalhos (minúsculos) e corpo."""
+    req = urllib.request.Request(f"{BASE}{caminho}")
+    with urllib.request.urlopen(req, context=ssl._create_unverified_context(), timeout=20) as r:  # noqa: S310
+        return r.status, {k.lower(): v for k, v in r.headers.items()}, r.read()
+
+
+def verificar_pwa() -> None:
+    """PWA instalável: manifest válido, ícones, metadados, cache correto."""
+    _, _, corpo = baixar("/")
+    html = corpo.decode()
+    for trecho in ('<html lang="pt-BR"', 'rel="manifest"', 'name="theme-color"', 'name="description"', 'property="og:title"', 'rel="apple-touch-icon"'):
+        assert trecho in html, f"index.html sem {trecho}"
+    assert "A new Flutter project" not in html, "descrição padrão do Flutter ainda no index.html"
+
+    status, cab, corpo = baixar("/manifest.json")
+    assert status == 200 and "json" in cab.get("content-type", ""), f"manifest.json: HTTP {status} {cab.get('content-type')}"
+    m = json.loads(corpo)
+    assert m["display"] in ("standalone", "fullscreen", "minimal-ui"), m["display"]
+    assert m["start_url"] and m["name"] and m["short_name"] and m["theme_color"] and m["background_color"], "manifest incompleto"
+    tamanhos = {(i["sizes"], i.get("purpose", "any")) for i in m["icons"]}
+    for exigido in (("192x192", "any"), ("512x512", "any"), ("512x512", "maskable")):
+        assert exigido in tamanhos, f"manifest sem o ícone {exigido}"
+    for icone in m["icons"]:
+        st, cab_i, dados = baixar("/" + icone["src"])
+        assert st == 200 and cab_i.get("content-type") == "image/png" and dados[:8] == b"\x89PNG\r\n\x1a\n", f"ícone inválido: {icone['src']}"
+    ok("PWA: manifest válido, ícones 192/512 (any e maskable) e metadados no index.html")
+
+    # Cache: entrada e service worker sempre revalidam; CanvasKit e ícones ficam em cache.
+    for caminho in ("/", "/flutter_service_worker.js", "/manifest.json"):
+        cab_c = baixar(caminho)[1]
+        assert "no-cache" in cab_c.get("cache-control", ""), f"{caminho}: Cache-Control={cab_c.get('cache-control')!r} (esperado no-cache)"
+    cab_i = baixar("/icons/Icon-192.png")[1]
+    assert "max-age=86400" in cab_i.get("cache-control", ""), f"ícone sem cache longo: {cab_i.get('cache-control')!r}"
+    ok("PWA: cache correto (entrada e service worker revalidam; ícones em cache)")
+
+
 def fluxo_conflito(page: Page) -> None:
     """Conflito de horário (HTTP 409): outra pessoa pega o horário enquanto o paciente está na tela."""
     abrir_site(page)
@@ -356,6 +405,11 @@ def main() -> int:
     inicio = time.time()
     falhas: list[str] = []
     with sync_playwright() as pw:
+        try:
+            verificar_pwa()
+        except (AssertionError, urllib.error.URLError, KeyError, ValueError) as exc:
+            print(f"::error title=PWA::{exc}")
+            falhas.append("pwa")
         browser = pw.chromium.launch()
         fluxos = (
             ("paciente", fluxo_paciente, False),

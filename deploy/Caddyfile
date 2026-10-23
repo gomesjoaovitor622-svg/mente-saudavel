@@ -27,6 +27,15 @@
 		#  - blob:/data: para imagens e workers que o próprio Flutter gera.
 		# A API fica em /api (mesmo domínio), então 'self' basta para ela.
 		header Content-Security-Policy "default-src 'self'; script-src 'self' 'wasm-unsafe-eval'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self' data: https://fonts.gstatic.com; connect-src 'self' https://brasilapi.com.br https://viacep.com.br https://fonts.gstatic.com; worker-src 'self' blob:; manifest-src 'self'; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'"
+		# Cache: o site inteiro REVALIDA a cada visita (ETag; é barato e garante que um deploy novo
+		# apareça na hora, inclusive index.html, flutter_service_worker.js e manifest.json). Só o que
+		# não muda entre builds (CanvasKit e ícones) fica em cache por 1 dia. O Service Worker do
+		# Flutter cuida do cache offline dos demais arquivos e se atualiza sozinho a cada versão.
+		@estatico path /canvaskit/* /icons/*
+		header @estatico Cache-Control "public, max-age=86400"
+		@dinamico not path /canvaskit/* /icons/*
+		header @dinamico Cache-Control "no-cache"
+
 		root * /srv/web
 		try_files {path} /index.html
 		file_server
