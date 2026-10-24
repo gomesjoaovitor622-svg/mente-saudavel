@@ -115,6 +115,9 @@ void main() {
     expect(find.text('Agendar sessão'), findsOneWidget); // continua na tela de agendar
     expect(await t.runAsync(() => repo.doPaciente(ana.id!)), isEmpty);
 
+    await t.pump(const Duration(seconds: 5)); // a mensagem (SnackBar) some sozinha e deixa de cobrir o botão
+    await assentar(t, rodadas: 4);
+
     // Outro horário (11:00) funciona; ao voltar, o provider recarrega e a lista mostra a sessão nova.
     await t.tap(find.text('11:00'));
     await assentar(t);
