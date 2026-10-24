@@ -1,6 +1,7 @@
 import 'dart:async';
 
 import 'package:mente_saudavel/data/local/outbox_repository.dart';
+import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:mente_saudavel/data/local/sessao_repository_local.dart';
 import 'package:mente_saudavel/data/remote/sessao_repository_offline.dart';
 import 'package:mente_saudavel/data/remote/sessao_repository_remoto.dart';
@@ -28,6 +29,9 @@ class Dependencias {
   factory Dependencias.producao() {
     if (!usaServidor) return Dependencias(sessoes: SessaoRepositoryLocal());
     final remoto = SessaoRepositoryRemoto();
+    // No NAVEGADOR não há banco local durável neste modo (o SQLite web exige arquivos extras de
+    // WebAssembly): o site funciona só online, direto na API. A fila offline é do Android/iOS.
+    if (kIsWeb) return Dependencias(sessoes: remoto);
     final outbox = OutboxRepository();
     final cache = CacheKv();
     int? usuario() => AuthService.atual.value?.id;

@@ -51,19 +51,23 @@ class SessaoRepositoryOffline implements SessaoRepository {
         modalidade: modalidade,
         chaveIdempotencia: chave,
       );
-    } on SemConexaoException {
-      final item = await outbox.enfileirar(
-        pacienteId,
-        TipoOutbox.agendar,
-        {
-          'profissional_id': profissionalId,
-          'data_hora': dataHora.toIso8601String(),
-          'modalidade': modalidade,
-        },
-        chave: chave, // a MESMA chave: se o 1º envio chegou ao servidor, o reenvio não duplica
-      );
-      aoMudarFila?.call();
-      return -item.id;
+    } on SemConexaoException catch (semRede) {
+      try {
+        final item = await outbox.enfileirar(
+          pacienteId,
+          TipoOutbox.agendar,
+          {
+            'profissional_id': profissionalId,
+            'data_hora': dataHora.toIso8601String(),
+            'modalidade': modalidade,
+          },
+          chave: chave, // a MESMA chave: se o 1º envio chegou ao servidor, o reenvio não duplica
+        );
+        aoMudarFila?.call();
+        return -item.id;
+      } catch (_) {
+        throw semRede; // sem fila local disponível: a tela mostra "sem conexão", como antes
+      }
     }
   }
 
@@ -84,10 +88,14 @@ class SessaoRepositoryOffline implements SessaoRepository {
   Future<void> _ouFila(String tipo, Map<String, Object?> payload, Future<void> Function() enviar) async {
     try {
       await enviar();
-    } on SemConexaoException {
+    } on SemConexaoException catch (semRede) {
       final dono = usuarioId();
       if (dono == null) rethrow;
-      await outbox.enfileirar(dono, tipo, payload);
+      try {
+        await outbox.enfileirar(dono, tipo, payload);
+      } catch (_) {
+        throw semRede; // sem fila local disponível: a tela mostra "sem conexão"
+      }
       aoMudarFila?.call();
     }
   }
@@ -98,14 +106,29 @@ class SessaoRepositoryOffline implements SessaoRepository {
     List<Sessao> base;
     try {
       final completa = await remoto.doPaciente(pacienteId);
-      await cache.gravar(_chaveCache(pacienteId), completa.map((s) => s.toCache()).toList());
+      try {
+        await cache.gravar(_chaveCache(pacienteId), completa.map((s) => s.toCache()).toList());
+      } catch (_) {
+        // O cache é um bônus: se o armazenamento local falhar, a lista online continua valendo.
+      }
       base = completa;
     } on SemConexaoException {
-      final guardado = await cache.ler(_chaveCache(pacienteId));
+      Object? guardado;
+      try {
+        guardado = await cache.ler(_chaveCache(pacienteId));
+      } catch (_) {
+        guardado = null;
+      }
       if (guardado is! List) rethrow; // nunca abriu online neste aparelho: nada para mostrar
       base = guardado.map((e) => Sessao.fromMap(Map<String, Object?>.from(e as Map))).toList();
     }
-    final comFila = aplicarFila(base, await outbox.todos(pacienteId), pacienteId);
+    var fila = const <ItemOutbox>[];
+    try {
+      fila = await outbox.todos(pacienteId);
+    } catch (_) {
+      // Sem fila local: mostra só o que veio do servidor.
+    }
+    final comFila = aplicarFila(base, fila, pacienteId);
     final filtrada = status == null ? comFila : comFila.where((s) => s.status == status).toList();
     filtrada.sort((a, b) => b.dataHora.compareTo(a.dataHora));
     return filtrada;
