@@ -16,7 +16,8 @@ from typing import Any
 
 LOGGER = "mente_saudavel"
 REQUEST_ID_RE = re.compile(r"[A-Za-z0-9._-]{8,64}")
-_EMAIL_RE = re.compile(r"[\w.+-]+@[\w-]+(?:\.[\w-]+)+")
+# Quantificadores LIMITADOS: sem repetição ilimitada, o tempo de busca não explode com texto malicioso (ReDoS).
+_EMAIL_RE = re.compile(r"[\w.+-]{1,64}@[\w-]{1,63}(?:\.[\w-]{1,63}){1,8}")
 _CONTROLE_RE = re.compile(r"[\x00-\x08\x0b-\x1f\x7f]")
 
 
@@ -51,7 +52,10 @@ def limpar_texto_cliente(texto: str | None, limite: int) -> str | None:
     """Texto vindo do aplicativo: tira e-mails (dado pessoal) e caracteres de controle."""
     if texto is None:
         return None
-    return _EMAIL_RE.sub("[email]", _CONTROLE_RE.sub(" ", texto))[:limite]
+    # Corta ANTES do regex (um e-mail cabe em 320 caracteres), tira quebras de linha (anti log-injection)
+    # e caracteres de controle, mascara e-mails e só então aplica o limite final.
+    curto = texto[: limite + 320].replace("\r", " ").replace("\n", " ")
+    return _EMAIL_RE.sub("[email]", _CONTROLE_RE.sub(" ", curto))[:limite]
 
 
 _FAIXAS = (0.05, 0.1, 0.25, 0.5, 1.0, 2.5, 5.0)

@@ -398,7 +398,7 @@ def create_app(settings: Settings | None = None, engine: Engine | None = None) -
                     "campos": {
                         "request_id": request.state.request_id,
                         "origem": "app",
-                        "tipo": e.tipo,
+                        "tipo": limpar_texto_cliente(e.tipo, 20),
                         "nome": limpar_texto_cliente(e.nome, 80),
                         "duracao_ms": e.duracao_ms,
                         "status": e.status,
