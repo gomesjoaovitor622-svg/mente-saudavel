@@ -37,8 +37,9 @@ sessão Web usa cookie HttpOnly/Secure e proteção anti-CSRF.
 exemplo como se fosse o sistema de psicoterapia. Para publicar o aplicativo real, configure o servidor e o domínio conforme
 o guia de implantação.
 
-O APK Android é independente do site. Para conectá-lo à mesma API, configure `API_URL` com a URL HTTPS completa terminada
-em `/api` no workflow Build APK. Se a variável estiver vazia, o APK é compilado no modo local SQLite.
+O APK Android é independente do site. Para conectá-lo à mesma API, ao executar manualmente o workflow Build APK informe
+`api_url` como URL HTTPS completa terminada em `/api`, ou configure a variável de repositório `API_URL`. Se ambas estiverem vazias,
+o APK é compilado no modo local SQLite.
 
 ## 3. Como rodar no computador (opcional)
 
