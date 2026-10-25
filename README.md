@@ -16,7 +16,7 @@ Aplicação de psicoterapia acessível com Flutter/Dart, API FastAPI e banco Pos
 
 - **Modo local:** `API_URL` vazio. O aplicativo usa SQLite local; dados não sincronizam entre aparelhos.
 - **Modo servidor:** configure `API_URL` para a API. No site hospedado pelo Docker, o build usa `/api` e Caddy encaminha esse caminho ao FastAPI no mesmo domínio.
-- **Android com servidor:** compile com `--dart-define=API_URL=https://SEU_DOMINIO/api` ou configure a variável de repositório `API_URL` no GitHub para o workflow Build APK.
+- **Android com servidor:** no workflow Build APK, informe `api_url` como `https://SEU_DOMINIO/api` ao executar manualmente, ou configure a variável de repositório `API_URL`. O workflow valida o formato HTTPS; se ambos estiverem vazios, o APK usa SQLite local.
 
 ## Colocar o sistema no ar
 
@@ -34,7 +34,7 @@ O workflow [Publicar versão Web](.github/workflows/deploy-web.yml) publica o ex
 
 ## Android (APK)
 
-O workflow [Build APK](.github/workflows/build-apk.yml) compila o APK e publica o artefato `MenteSaudavel-APK` na execução do workflow. Um build de demonstração pode conter contas de teste e pode estar assinado com chave de teste. Para distribuição pública, configure uma chave de assinatura própria e teste atualização/instalação. Para conectar o APK à API, configure `API_URL` no GitHub para a URL HTTPS completa terminada em `/api`, e execute novamente o workflow.
+O workflow [Build APK](.github/workflows/build-apk.yml) compila o APK e publica o artefato `MenteSaudavel-APK` na execução do workflow. Um build de demonstração pode conter contas de teste e pode estar assinado com chave de teste. Para distribuição pública, configure uma chave de assinatura própria e teste atualização/instalação. Para conectar o APK à API, informe `api_url` na execução manual do workflow ou configure a variável de repositório `API_URL` com a URL HTTPS terminada em `/api`.
 
 ## Validação observada
 
