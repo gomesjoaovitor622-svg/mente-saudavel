@@ -1,8 +1,9 @@
-# Mente Saudável — app Flutter com SQLite (CRUD completo)
+# Mente Saudável — app Flutter, modo local e modo servidor
 
-App de **psicoterapia acessível** baseado no vídeo enviado: criar conta em passos, escolher **Paciente** ou
-**Profissional**, painel de cada perfil, agendamento de sessões. **Todos os dados ficam em um banco SQLite local**
-no celular (`mente_saudavel.db`), e o app funciona offline. As APIs (feriados e CEP) são opcionais.
+Aplicativo de **psicoterapia acessível** com perfis de **Paciente** e **Profissional**, agenda de sessões e diário de humor.
+O projeto oferece dois modos: **local**, usando SQLite no aparelho, e **servidor**, usando a API FastAPI e o banco PostgreSQL
+configurados em `server/` e `deploy/`. O modo usado depende da flag de compilação `API_URL`. A existência do código e dos
+builds de CI não significa que o servidor já esteja publicado na internet.
 
 ## 1. Como obter o APK
 
@@ -22,23 +23,22 @@ quando o APK está com assinatura de **teste**; configure a assinatura de produ�
 
 > Rodar localmente com dados de exemplo: `flutter run --dart-define=DEMO_MODE=true`.
 
-## 2. Versão Web (site no GitHub Pages)
+## 2. Versão Web (aplicativo completo)
 
-O mesmo código roda no navegador, com o SQLite compilado para WebAssembly (os dados ficam no **IndexedDB do
-navegador**, separados por aparelho/navegador). O workflow `Publicar versão Web` faz tudo sozinho:
+O aplicativo completo é compilado pelo workflow **Site para servidor** (`.github/workflows/build-site.yml`) e pelo serviço `site`
+em `deploy/docker-compose.yml`. O artefato `site-web` é um pacote de arquivos estáticos; ele não inclui a API nem o banco.
 
-1. No repositório: **Settings → Pages → Build and deployment → Source: GitHub Actions** (faça isso uma vez).
-2. Envie o código (ou rode *Actions → Publicar versão Web → Run workflow*).
-3. Ao terminar (✓), o endereço aparece no próprio workflow e em *Settings → Pages*:
-   `https://SEU_USUARIO.github.io/NOME_DO_REPOSITORIO/`
+**Implantação recomendada:** sirva o site e a API no **mesmo domínio** usando o Caddy e Docker Compose descritos em
+[`deploy/README-DEPLOY.md`](deploy/README-DEPLOY.md). A API fica em `/api`, e o site em `/`. Isso é importante porque a
+sessão Web usa cookie HttpOnly/Secure e proteção anti-CSRF.
 
-Observações:
-- O GitHub Pages é gratuito para repositórios **públicos** (em privados exige plano pago).
-- O código do celular **não muda**: o suporte web é aplicado só durante o build do site
-  (`web_overrides/database_factory_setup.web.txt` + pacote `sqflite_common_ffi_web`), então o APK não é afetado.
-- Se o repositório se chamar `SEU_USUARIO.github.io`, troque `--base-href` no workflow por `"/"`.
-- BrasilAPI e ViaCEP, no navegador, dependem de permitirem chamadas de outro site (CORS). Isso **não foi testado**;
-  se não permitirem, o app continua funcionando e apenas some o aviso de feriado / a busca de CEP.
+**Atenção:** o workflow **Publicar versão Web** (`.github/workflows/deploy-web.yml`) publica apenas o exemplo
+`exercicios/crud_jsonplaceholder/`; ele **não publica** o Mente Saudável completo. Não use o endereço do GitHub Pages desse
+exemplo como se fosse o sistema de psicoterapia. Para publicar o aplicativo real, configure o servidor e o domínio conforme
+o guia de implantação.
+
+O APK Android é independente do site. Para conectá-lo à mesma API, configure `API_URL` com a URL HTTPS completa terminada
+em `/api` no workflow Build APK. Se a variável estiver vazia, o APK é compilado no modo local SQLite.
 
 ## 3. Como rodar no computador (opcional)
 
@@ -126,12 +126,12 @@ Padrão: **Tela → Service/DAO → SQLite**. As telas nunca escrevem SQL.
 
 | Item | Situação |
 |---|---|
-| Compilar o APK | **Não foi executado.** O workflow está pronto, mas só o primeiro build no GitHub Actions confirma que compila. |
-| Compilar o site (web) | **Não foi executado**, pelo mesmo motivo. |
-| BrasilAPI / ViaCEP | **Não testadas** (sem acesso à internet no ambiente de desenvolvimento), nem no celular nem no navegador (CORS). |
-| Login com Google/Apple (do vídeo) | **Não implementado.** Exige conta no Google Cloud (OAuth), SHA-1 de uma chave de assinatura fixa e, para Apple, conta de desenvolvedor paga. |
-| Autenticação | **Local** (sem servidor). Serve para o trabalho, não para produção; dados não sincronizam entre aparelhos. |
-| Assinatura do APK | Chave de debug. Instala normalmente, mas não serve para a Play Store. |
+| Build APK no GitHub Actions | **Executado com sucesso** em uma execução recente. Isso não substitui teste de instalação em aparelho Android real. |
+| Build Web para servidor | **Executado com sucesso** em uma execução recente; o artefato é gerado, mas precisa ser implantado no servidor. |
+| Testes da API | Jobs recentes passaram em SQLite e PostgreSQL no CI; isso não confirma que há uma instância pública ativa. |
+| Publicação pública do app completo | **Ainda não confirmada.** É necessário configurar servidor, domínio, DNS e HTTPS. |
+| Login com Google/Apple | Não deve ser considerado implementado sem configuração e validação específicas. |
+| Assinatura do APK | Sem os segredos de keystore configurados, o workflow usa assinatura de teste; não é adequado para Play Store nem garante atualização sobre outra assinatura. |
 
-Verificado: sintaxe dos 32 arquivos Dart (parser), uso correto de `const`, e todo o SQL do app executado em SQLite real
-(criação das tabelas, restrições, conflito de horário, cascata e números dos painéis).
+As execuções recentes podem ser consultadas na aba [Actions](https://github.com/gomesjoaovitor622-svg/mente-saudavel/actions).
+Consulte também [deploy/README-DEPLOY.md](deploy/README-DEPLOY.md) antes de configurar um servidor.
