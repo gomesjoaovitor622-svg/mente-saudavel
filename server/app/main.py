@@ -1,15 +1,19 @@
 """API REST do Mente Saudável. Toda regra de acesso fica aqui, no servidor."""
 
+import hmac
 import logging
+import re
 import time
+import uuid
 from collections import defaultdict, deque
 from collections.abc import Callable, Iterator
 from datetime import datetime, timedelta
 from typing import Annotated, Any
 
-from fastapi import Depends, FastAPI, HTTPException, Query, Request, Response
+from fastapi import Depends, FastAPI, Header, HTTPException, Query, Request, Response
 from fastapi.middleware.cors import CORSMiddleware
-from sqlalchemy import Engine, case, func, select
+from fastapi.responses import JSONResponse, PlainTextResponse
+from sqlalchemy import Engine, case, delete, func, select, update
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session, sessionmaker
 
@@ -17,6 +21,7 @@ from app import schemas
 from app.config import Settings, load_settings
 from app.db import Base, garantir_colunas, garantir_indices, make_engine, make_session_factory, session_iter
 from app.models import Avaliacao, Humor, Sessao, Usuario
+from app.observabilidade import REQUEST_ID_RE, Metricas, configurar_logs, limpar_texto_cliente
 from app.security import HASH_FALSO, criar_token, hash_senha, ler_token, verificar_senha
 
 
@@ -31,6 +36,7 @@ def _usuario_out(u: Usuario) -> dict[str, Any]:
         "endereco": u.endereco,
         "valor_sessao_centavos": u.valor_sessao_centavos,
         "criado_em": u.criado_em.isoformat(),
+        "aceite_termos_versao": u.aceite_termos_versao,
     }
 
 
@@ -97,6 +103,7 @@ class _LimiteLogin:
 
 
 COOKIE_SESSAO = "ms_sessao"
+_CHAVE_IDEMPOTENCIA = re.compile(r"[A-Za-z0-9_-]{8,64}")
 
 
 def create_app(settings: Settings | None = None, engine: Engine | None = None) -> FastAPI:
@@ -124,16 +131,41 @@ def create_app(settings: Settings | None = None, engine: Engine | None = None) -
             CORSMiddleware,
             allow_origins=list(cfg.cors_origins),
             allow_methods=["GET", "POST", "PUT", "PATCH", "DELETE"],
-            allow_headers=["Authorization", "Content-Type", "X-Requested-With"],
+            allow_headers=["Authorization", "Content-Type", "X-Requested-With", "Idempotency-Key", "X-Request-ID"],
             max_age=600,
         )
 
+    log = configurar_logs(cfg.log_level)
+    metricas = Metricas()
+
     @app.middleware("http")
-    async def _cabecalhos(request: Request, call_next: Callable[..., Any]) -> Response:
-        resp: Response = await call_next(request)
+    async def _observar(request: Request, call_next: Callable[..., Any]) -> Response:
+        """Cabeçalhos de segurança + id da requisição + 1 linha de log JSON + métricas (sem dados pessoais)."""
+        rid = request.headers.get("X-Request-ID", "")
+        if not REQUEST_ID_RE.fullmatch(rid):
+            rid = uuid.uuid4().hex
+        request.state.request_id = rid
+        inicio = time.perf_counter()
+        try:
+            resp: Response = await call_next(request)
+        except Exception:  # erro não tratado: registra com a pilha e devolve 500 sem detalhes internos
+            log.error("erro_nao_tratado", extra={"campos": {"request_id": rid, "metodo": request.method}}, exc_info=True)
+            resp = JSONResponse({"detail": f"Erro interno. Informe o código {rid} ao suporte."}, status_code=500)
+        segundos = time.perf_counter() - inicio
+        rota = getattr(request.scope.get("route"), "path", None) or "(sem rota)"
         resp.headers["X-Content-Type-Options"] = "nosniff"
         resp.headers["Cache-Control"] = "no-store"
         resp.headers["Referrer-Policy"] = "no-referrer"
+        resp.headers["X-Request-ID"] = rid
+        resp.headers["Server-Timing"] = f"app;dur={segundos * 1000:.1f}"
+        metricas.observar(request.method, rota, resp.status_code, segundos)
+        if rota != "/health":  # o healthcheck do Docker enche o log à toa
+            nivel = logging.ERROR if resp.status_code >= 500 else logging.INFO
+            log.log(
+                nivel,
+                "requisicao",
+                extra={"campos": {"request_id": rid, "metodo": request.method, "rota": rota, "status": resp.status_code, "duracao_ms": round(segundos * 1000, 1)}},
+            )
         return resp
 
     def get_db() -> Iterator[Session]:
@@ -157,7 +189,7 @@ def create_app(settings: Settings | None = None, engine: Engine | None = None) -
             raise HTTPException(401, "Não autenticado.")
         uid = ler_token(token, cfg.jwt_secret)
         user = db.get(Usuario, uid) if uid is not None else None
-        if user is None:
+        if user is None or user.anonimizado_em is not None:
             raise HTTPException(401, "Sessão expirada. Entre novamente.")
         return user
 
@@ -185,8 +217,11 @@ def create_app(settings: Settings | None = None, engine: Engine | None = None) -
             return "Você já tem uma sessão neste horário."
         return None
 
-    def gravar_sessao(db: Session, prof_id: int, pac_id: int, quando: datetime, ignorar: int) -> None:
-        """Confirma a gravação. Se o banco recusar por horário duplicado (corrida entre 2 requisições), responde 409."""
+    def gravar_sessao(db: Session, prof_id: int, pac_id: int, quando: datetime, ignorar: int, chave: str | None = None) -> Sessao | None:
+        """Confirma a gravação. Se o banco recusar por horário duplicado (corrida entre 2 requisições), responde 409.
+
+        Se a recusa foi da CHAVE DE IDEMPOTÊNCIA (o mesmo agendamento chegou duas vezes ao mesmo tempo),
+        devolve a sessão que já existe em vez de erro."""
         try:
             db.commit()
         except IntegrityError as e:
@@ -194,7 +229,12 @@ def create_app(settings: Settings | None = None, engine: Engine | None = None) -
             texto = str(e.orig).lower()
             if "unique" not in texto and "duplicate" not in texto:
                 raise
+            if chave:
+                existente = db.scalar(select(Sessao).where(Sessao.paciente_id == pac_id, Sessao.chave_idempotencia == chave))
+                if existente is not None:
+                    return existente
             raise HTTPException(409, mensagem_conflito(db, prof_id, pac_id, quando, ignorar) or "Este horário acabou de ser ocupado. Escolha outro.") from None
+        return None
 
     # ------------------------------------------------------------------ saúde
     @app.get("/health")
@@ -225,6 +265,8 @@ def create_app(settings: Settings | None = None, engine: Engine | None = None) -
             perfil=body.perfil,
             registro=(body.registro or None) if body.perfil == "profissional" else None,
             especialidade=(body.especialidade or None) if body.perfil == "profissional" else None,
+            aceite_termos_versao=body.aceite_termos_versao,
+            aceite_termos_em=datetime.now().replace(microsecond=0) if body.aceite_termos_versao else None,
         )
         db.add(user)
         try:
@@ -307,6 +349,78 @@ def create_app(settings: Settings | None = None, engine: Engine | None = None) -
         db.commit()
         return Response(status_code=204)
 
+    @app.post("/auth/eu/aceite", status_code=200)
+    def registrar_aceite(body: schemas.AceiteIn, user: Eu, db: Db) -> dict[str, Any]:
+        """LGPD: registra qual versão dos Termos/Política a pessoa aceitou e quando (prova do consentimento)."""
+        user.aceite_termos_versao = body.versao
+        user.aceite_termos_em = datetime.now().replace(microsecond=0)
+        db.commit()
+        return _usuario_out(user)
+
+    @app.post("/auth/eu/anonimizar", status_code=204)
+    def anonimizar_conta(body: schemas.AnonimizarIn, user: Eu, db: Db) -> Response:
+        """LGPD, art. 18 (eliminação): exclusão lógica + anonimização da conta de PACIENTE.
+
+        Apaga os registros de humor e os comentários de avaliação, troca nome/e-mail por valores anônimos
+        e bloqueia o acesso. As sessões ficam, sem identificar a pessoa, porque o profissional precisa
+        guardar o prontuário e os registros financeiros por obrigação legal (art. 16, I)."""
+        if user.perfil != "paciente":
+            raise HTTPException(403, "Profissionais devem usar a exclusão de conta (os pacientes dependem do histórico).")
+        if not verificar_senha(body.senha, user.senha_hash):
+            raise HTTPException(401, "Senha incorreta.")
+        db.execute(delete(Humor).where(Humor.usuario_id == user.id))
+        db.execute(update(Avaliacao).where(Avaliacao.paciente_id == user.id).values(comentario=""))
+        # Sessões futuras são canceladas: o profissional não deve esperar alguém que já não existe.
+        db.execute(update(Sessao).where(Sessao.paciente_id == user.id, Sessao.status == "agendada", Sessao.data_hora > datetime.now()).values(status="cancelada"))
+        user.nome = "Paciente anonimizado"
+        user.email = f"anonimizado-{user.id}@anonimizado.invalid"
+        user.senha_hash = HASH_FALSO  # ninguém conhece a senha deste hash
+        user.aceite_termos_em = None
+        user.anonimizado_em = datetime.now().replace(microsecond=0)
+        db.commit()
+        log.info("conta_anonimizada", extra={"campos": {"usuario_id": user.id}})
+        resp = Response(status_code=204)
+        resp.delete_cookie(COOKIE_SESSAO, path="/", httponly=True, secure=cfg.cookie_secure, samesite="strict")
+        return resp
+
+    # ----------------------------------------------------------- telemetria e métricas
+    limite_telemetria = _LimiteLogin(cfg.telemetry_max_per_minute)
+
+    @app.post("/telemetria", status_code=204)
+    def receber_telemetria(body: schemas.TelemetriaIn, request: Request) -> Response:
+        """Erros e tempos medidos pelo app, gravados como logs JSON. Aberto (o erro pode ocorrer antes do
+        login), por isso tem limite por IP, tamanho máximo e remove e-mails dos textos."""
+        limite_telemetria.checar(request.client.host if request.client else "?")
+        for e in body.eventos:
+            log.info(
+                "evento_cliente",
+                extra={
+                    "campos": {
+                        "request_id": request.state.request_id,
+                        "origem": "app",
+                        "tipo": limpar_texto_cliente(e.tipo, 20),
+                        "nome": limpar_texto_cliente(e.nome, 80),
+                        "duracao_ms": e.duracao_ms,
+                        "status": e.status,
+                        "mensagem": limpar_texto_cliente(e.mensagem, 300),
+                        "pilha": limpar_texto_cliente(e.pilha, 4000),
+                        "versao_app": limpar_texto_cliente(body.versao_app, 20),
+                        "plataforma": limpar_texto_cliente(body.plataforma, 20),
+                    }
+                },
+            )
+        return Response(status_code=204)
+
+    @app.get("/metricas", response_class=PlainTextResponse)
+    def exportar_metricas(request: Request) -> Response:
+        """Formato Prometheus. Desligado (404) sem METRICS_TOKEN; com ele exige `Authorization: Bearer`."""
+        if not cfg.metrics_token:
+            raise HTTPException(404, "Não encontrado.")
+        enviado = request.headers.get("Authorization", "").removeprefix("Bearer ")
+        if not hmac.compare_digest(enviado.encode(), cfg.metrics_token.encode()):
+            raise HTTPException(401, "Não autenticado.")
+        return PlainTextResponse(metricas.texto())
+
     # ----------------------------------------------------------- profissionais
     @app.get("/profissionais")
     def profissionais(user: Eu, db: Db, q: str = Query(default="", max_length=80)) -> list[dict[str, Any]]:
@@ -382,8 +496,22 @@ def create_app(settings: Settings | None = None, engine: Engine | None = None) -
         return {"mensagem": mensagem_conflito(db, profissional_id, pac_id, data_hora, ignorar_id)}
 
     @app.post("/sessoes", status_code=201)
-    def criar_sessao(body: schemas.SessaoIn, user: Eu, db: Db) -> dict[str, Any]:
+    def criar_sessao(
+        body: schemas.SessaoIn,
+        user: Eu,
+        db: Db,
+        response: Response,
+        chave: Annotated[str | None, Header(alias="Idempotency-Key")] = None,
+    ) -> dict[str, Any]:
         exigir_perfil(user, "paciente")
+        if chave is not None and not _CHAVE_IDEMPOTENCIA.fullmatch(chave):
+            raise HTTPException(422, "Idempotency-Key inválida (8 a 64 letras, números, '-' ou '_').")
+        if chave:
+            # Reenvio do mesmo agendamento (ex.: o app estava offline e tentou de novo): devolve o que já existe.
+            existente = db.scalar(select(Sessao).where(Sessao.paciente_id == user.id, Sessao.chave_idempotencia == chave))
+            if existente is not None:
+                response.status_code = 200
+                return _sessao_out(existente, ver_anotacoes=False)
         prof = db.get(Usuario, body.profissional_id)
         if prof is None or prof.perfil != "profissional":
             raise HTTPException(404, "Profissional não encontrado.")
@@ -398,9 +526,13 @@ def create_app(settings: Settings | None = None, engine: Engine | None = None) -
             data_hora=body.data_hora,
             modalidade=body.modalidade,
             valor_centavos=prof.valor_sessao_centavos or 0,  # congela o preço da hora do agendamento
+            chave_idempotencia=chave,
         )
         db.add(s)
-        gravar_sessao(db, prof.id, user.id, body.data_hora, -1)
+        ja_existia = gravar_sessao(db, prof.id, user.id, body.data_hora, -1, chave)
+        if ja_existia is not None:
+            response.status_code = 200
+            return _sessao_out(ja_existia, ver_anotacoes=False)
         return _sessao_out(s, ver_anotacoes=False)
 
     @app.patch("/sessoes/{sessao_id}")
@@ -438,12 +570,7 @@ def create_app(settings: Settings | None = None, engine: Engine | None = None) -
         db.commit()
         return Response(status_code=204)
 
-    @app.get("/profissional/financeiro")
-    def financeiro(user: Eu, db: Db, mes: str | None = Query(default=None, pattern=r"^\d{4}-(0[1-9]|1[0-2])$")) -> dict[str, Any]:
-        """Faturamento do mês (YYYY-MM; padrão: mês atual): recebido (concluídas) e a receber (agendadas)."""
-        exigir_perfil(user, "profissional")
-        hoje = datetime.now()
-        ano, num = (int(mes[:4]), int(mes[5:])) if mes else (hoje.year, hoje.month)
+    def faturamento_do_mes(db: Session, user: Usuario, ano: int, num: int) -> dict[str, Any]:
         inicio = datetime(ano, num, 1)
         fim = datetime(ano + (num == 12), 1 if num == 12 else num + 1, 1)
 
@@ -466,8 +593,27 @@ def create_app(settings: Settings | None = None, engine: Engine | None = None) -
             "sessoes_concluidas": concluidas,
             "a_receber_centavos": a_receber,
             "sessoes_agendadas": agendadas,
-            "valor_sessao_centavos": user.valor_sessao_centavos,
         }
+
+    @app.get("/profissional/financeiro")
+    def financeiro(user: Eu, db: Db, mes: str | None = Query(default=None, pattern=r"^\d{4}-(0[1-9]|1[0-2])$")) -> dict[str, Any]:
+        """Faturamento do mês (YYYY-MM; padrão: mês atual): recebido (concluídas) e a receber (agendadas)."""
+        exigir_perfil(user, "profissional")
+        hoje = datetime.now()
+        ano, num = (int(mes[:4]), int(mes[5:])) if mes else (hoje.year, hoje.month)
+        return {**faturamento_do_mes(db, user, ano, num), "valor_sessao_centavos": user.valor_sessao_centavos}
+
+    @app.get("/profissional/financeiro/historico")
+    def historico_financeiro(user: Eu, db: Db, meses: int = Query(default=6, ge=1, le=24)) -> list[dict[str, Any]]:
+        """Faturamento dos últimos `meses` meses (o mais recente primeiro), para a tela de histórico."""
+        exigir_perfil(user, "profissional")
+        hoje = datetime.now()
+        ano, num = hoje.year, hoje.month
+        saida: list[dict[str, Any]] = []
+        for _ in range(meses):
+            saida.append(faturamento_do_mes(db, user, ano, num))
+            ano, num = (ano - 1, 12) if num == 1 else (ano, num - 1)
+        return saida
 
     @app.get("/profissional/pacientes")
     def pacientes(user: Eu, db: Db) -> list[dict[str, Any]]:

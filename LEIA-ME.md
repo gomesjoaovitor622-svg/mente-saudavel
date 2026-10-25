@@ -94,7 +94,7 @@ usuarios (id PK, nome, email UNIQUE NOCASE, senha_hash, salt, perfil, registro, 
    └──< app_sessao (id=1, usuario_id FK)   -- quem está logado
 ```
 - `CHECK` garante perfil, status e nível válidos; `FOREIGN KEY ... ON DELETE CASCADE` mantém a integridade.
-- Senhas são gravadas como **SHA-256 com sal** (nunca em texto puro).
+- Senhas do modo local são gravadas como **PBKDF2-HMAC-SHA256 (100 mil iterações, sal por usuário)** (nunca em texto puro). Contas antigas com SHA-256 entram normalmente e são convertidas no primeiro login. No modo servidor a senha usa scrypt, no servidor.
 - Banco criado e populado no `onCreate`; `onOpen` roda o script `IF NOT EXISTS` (auto-correção).
 
 ### Como ver e usar o banco

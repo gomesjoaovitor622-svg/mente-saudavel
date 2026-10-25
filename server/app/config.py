@@ -23,6 +23,9 @@ class Settings:
     password_min: int = 8
     login_max_attempts: int = 10  # por minuto, por e-mail + IP
     signup_max_attempts: int = 10  # cadastros por minuto, por IP
+    metrics_token: str = ""  # vazio = endpoint /metricas desligado (404)
+    telemetry_max_per_minute: int = 30  # eventos enviados pelo app, por IP
+    log_level: str = "INFO"
     cookie_secure: bool = True  # cookie de sessão só por HTTPS (desligue apenas em desenvolvimento local)
 
     @property
@@ -57,5 +60,8 @@ def load_settings() -> Settings:
         demo_seed=_bool("DEMO_SEED", False),
         password_min=int(os.environ.get("PASSWORD_MIN", "8")),
         signup_max_attempts=int(os.environ.get("SIGNUP_MAX_ATTEMPTS", "10")),
+        metrics_token=os.environ.get("METRICS_TOKEN", ""),
+        telemetry_max_per_minute=int(os.environ.get("TELEMETRY_MAX_PER_MINUTE", "30")),
+        log_level=os.environ.get("LOG_LEVEL", "INFO"),
         cookie_secure=_bool("COOKIE_SECURE", env != "development"),
     )

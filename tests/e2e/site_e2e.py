@@ -10,9 +10,13 @@ Falhas viram anotações `::error::` no GitHub e deixam capturas de tela na past
 from __future__ import annotations
 
 import datetime as dt
+import json
 import re
+import ssl
 import sys
 import time
+import urllib.error
+import urllib.request
 from pathlib import Path
 from urllib.parse import urlsplit
 from zoneinfo import ZoneInfo
@@ -90,6 +94,23 @@ def digitar(page: Page, rotulo: str, valor: str) -> None:
     raise AssertionError(f"campo {rotulo!r}: digitado {len(valor)} caracteres, ficou com {len(atual or '')}")
 
 
+def ver_ou_aceitar(page: Page, esperado: str, timeout: int = 30_000) -> None:
+    """Espera `esperado` na tela. Contas sem aceite gravado (ex.: as de demonstração) veem antes a tela
+    de aceite dos Termos: aceita e segue, como uma pessoa faria (LGPD: o aceite é por conta)."""
+    fim = time.time() + timeout / 1000
+    aceitou = False
+    while time.time() < fim:
+        if page.locator(f'[aria-label*="{esperado}"], flt-semantics:has-text("{esperado}")').count() > 0:
+            return
+        if not aceitou and page.locator('[aria-label*="Aceitar e continuar"], flt-semantics:has-text("Aceitar e continuar")').count() > 0:
+            tocar(page, "Li e aceito")
+            tocar(page, "Aceitar e continuar")
+            aceitou = True
+            ok("conta sem aceite registrado pede o aceite após o login (LGPD)")
+        page.wait_for_timeout(500)
+    ver(page, esperado, 2_000)  # estoura com a mensagem padrão de timeout
+
+
 def ok(nome: str) -> None:
     etapas.append(nome)
     print(f"  ok  {nome}", flush=True)
@@ -100,7 +121,13 @@ def abrir_site(page: Page) -> None:
     page.wait_for_selector("flt-glass-pane", state="attached", timeout=60_000)
     # Liga a acessibilidade do Flutter (botão invisível fora da tela).
     page.locator("flt-semantics-placeholder").dispatch_event("click")
+    # LGPD: no primeiro acesso o aceite dos Termos e da Política é obrigatório, ANTES do login.
+    ver(page, "Aceitar e continuar", 60_000)
+    assert page.get_by_role("button", name="Aceitar e continuar").first.is_disabled(), "botão de aceite deveria começar desabilitado"
+    tocar(page, "Li e aceito")
+    tocar(page, "Aceitar e continuar")
     ver(page, "Entrar", 60_000)
+    ok("primeiro acesso exige o aceite dos Termos e da Política (LGPD)")
 
 
 def fluxo_paciente(page: Page) -> None:
@@ -117,8 +144,29 @@ def fluxo_paciente(page: Page) -> None:
     # Login correto.
     digitar(page, "Senha", "123456")
     tocar(page, "Entrar")
-    ver(page, "Buscar")
+    ver_ou_aceitar(page, "Buscar")
     ok("login do paciente entra no app")
+
+    # Sessão por cookie HttpOnly: o JavaScript da página não enxerga o token e o login sobrevive ao recarregar.
+    assert "ms_sessao" not in page.evaluate("document.cookie"), "cookie de sessão está legível pelo JavaScript"
+    assert "ms_token" not in page.evaluate("JSON.stringify(localStorage)"), "token guardado no localStorage"
+    page.reload(wait_until="load")
+    page.wait_for_selector("flt-glass-pane", state="attached", timeout=60_000)
+    page.locator("flt-semantics-placeholder").dispatch_event("click")
+    ver(page, "Buscar", 60_000)
+    ok("cookie HttpOnly mantém o login ao recarregar (sem token no JavaScript)")
+    registrou = False
+    for _ in range(20):  # o Service Worker do Flutter registra logo após o carregamento
+        registrou = page.evaluate("navigator.serviceWorker ? navigator.serviceWorker.getRegistration().then(r => !!r) : false")
+        if registrou:
+            break
+        page.wait_for_timeout(1000)
+    if registrou:
+        ok("Service Worker registrado (PWA com cache offline)")
+    else:
+        # Aviso, não reprovação: versões novas do Flutter estão aposentando o Service Worker padrão, e o
+        # app continua instalável (manifest + HTTPS). O cache offline dos dados é feito pelo Outbox/cache local.
+        print("::warning title=PWA::Service Worker não registrado: sem cache offline dos arquivos do site")
 
     tocar(page, "Buscar")
     ver(page, "Dra. Helena Marques")
@@ -153,7 +201,7 @@ def fluxo_cadastro_e_profissional(page: Page) -> None:
     digitar(page, "E-mail", "helena@mentesaudavel.app")
     digitar(page, "Senha", "mente123")
     tocar(page, "Entrar")
-    ver(page, "Painel do Profissional")
+    ver_ou_aceitar(page, "Painel do Profissional")
     ok("login do profissional abre o painel")
     ver(page, "avaliação média")
     ok("painel mostra a avaliação média")
@@ -176,7 +224,7 @@ def entrar(page: Page, email: str, senha: str, aguardar: str) -> None:
     digitar(page, "E-mail", email)
     digitar(page, "Senha", senha)
     tocar(page, "Entrar")
-    ver(page, aguardar)
+    ver_ou_aceitar(page, aguardar)
 
 
 def fluxo_acoes_paciente(page: Page) -> None:
@@ -233,6 +281,103 @@ def fluxo_acoes_paciente(page: Page) -> None:
     ok("cancelar sessão")
 
 
+def api(metodo: str, caminho: str, corpo: dict | None = None, token: str | None = None) -> tuple[int, dict | list | None]:
+    """Chama a API direto (como outro usuário, em paralelo ao navegador)."""
+    cab = {"Content-Type": "application/json"}
+    if token:
+        cab["Authorization"] = f"Bearer {token}"
+    req = urllib.request.Request(f"{BASE}/api{caminho}", method=metodo, headers=cab, data=json.dumps(corpo).encode() if corpo is not None else None)
+    try:
+        with urllib.request.urlopen(req, context=ssl._create_unverified_context(), timeout=20) as r:  # noqa: S310 (certificado de teste do Caddy)
+            texto = r.read().decode()
+            return r.status, json.loads(texto) if texto else None
+    except urllib.error.HTTPError as e:
+        texto = e.read().decode()
+        return e.code, json.loads(texto) if texto else None
+
+
+def baixar(caminho: str) -> tuple[int, dict[str, str], bytes]:
+    """GET direto no site (sem navegador): status, cabeçalhos (minúsculos) e corpo."""
+    req = urllib.request.Request(f"{BASE}{caminho}")
+    with urllib.request.urlopen(req, context=ssl._create_unverified_context(), timeout=20) as r:  # noqa: S310
+        return r.status, {k.lower(): v for k, v in r.headers.items()}, r.read()
+
+
+def verificar_pwa() -> None:
+    """PWA instalável: manifest válido, ícones, metadados, cache correto."""
+    _, _, corpo = baixar("/")
+    html = corpo.decode()
+    for trecho in ('<html lang="pt-BR"', 'rel="manifest"', 'name="theme-color"', 'name="description"', 'property="og:title"', 'rel="apple-touch-icon"'):
+        assert trecho in html, f"index.html sem {trecho}"
+    assert "A new Flutter project" not in html, "descrição padrão do Flutter ainda no index.html"
+
+    status, cab, corpo = baixar("/manifest.json")
+    assert status == 200 and "json" in cab.get("content-type", ""), f"manifest.json: HTTP {status} {cab.get('content-type')}"
+    m = json.loads(corpo)
+    assert m["display"] in ("standalone", "fullscreen", "minimal-ui"), m["display"]
+    assert m["start_url"] and m["name"] and m["short_name"] and m["theme_color"] and m["background_color"], "manifest incompleto"
+    tamanhos = {(i["sizes"], i.get("purpose", "any")) for i in m["icons"]}
+    for exigido in (("192x192", "any"), ("512x512", "any"), ("512x512", "maskable")):
+        assert exigido in tamanhos, f"manifest sem o ícone {exigido}"
+    for icone in m["icons"]:
+        st, cab_i, dados = baixar("/" + icone["src"])
+        assert st == 200 and cab_i.get("content-type") == "image/png" and dados[:8] == b"\x89PNG\r\n\x1a\n", f"ícone inválido: {icone['src']}"
+    ok("PWA: manifest válido, ícones 192/512 (any e maskable) e metadados no index.html")
+
+    # Cache: entrada e service worker sempre revalidam; CanvasKit e ícones ficam em cache.
+    for caminho in ("/", "/flutter_service_worker.js", "/manifest.json"):
+        cab_c = baixar(caminho)[1]
+        assert "no-cache" in cab_c.get("cache-control", ""), f"{caminho}: Cache-Control={cab_c.get('cache-control')!r} (esperado no-cache)"
+    cab_i = baixar("/icons/Icon-192.png")[1]
+    assert "max-age=86400" in cab_i.get("cache-control", ""), f"ícone sem cache longo: {cab_i.get('cache-control')!r}"
+    ok("PWA: cache correto (entrada e service worker revalidam; ícones em cache)")
+
+
+def fluxo_conflito(page: Page) -> None:
+    """Conflito de horário (HTTP 409): outra pessoa pega o horário enquanto o paciente está na tela."""
+    abrir_site(page)
+    digitar(page, "E-mail", "carlos@email.com")
+    digitar(page, "Senha", "123456")
+    tocar(page, "Entrar")
+    ver_ou_aceitar(page, "Buscar")
+    tocar(page, "Sessões")
+    tocar(page, "Agendar")
+    ver(page, "Agendar sessão")
+    tocar(page, "Dr. Rafael Andrade")
+    tocar(page, "Escolher data")
+    dia = HOJE() + dt.timedelta(days=2)
+    if dia.month != HOJE().month:
+        tocar(page, "Próximo mês")
+    page.get_by_role("button", name=re.compile(rf"^{dia.day}\b")).first.click(timeout=TIMEOUT)
+    tocar(page, "OK")
+    ver(page, "14:00")
+    tocar(page, "14:00")
+    ok("paciente escolheu o horário das 14:00")
+
+    # Enquanto a tela está aberta, outra pessoa agenda o MESMO horário com o mesmo profissional.
+    email = f"rival{int(time.time())}@teste.com"
+    status, _ = api("POST", "/auth/cadastro", {"nome": "Rival Teste", "email": email, "senha": "senhasegura1", "perfil": "paciente", "aceite_termos_versao": "teste"})
+    assert status == 201, f"cadastro do rival: HTTP {status}"
+    _, login = api("POST", "/auth/entrar", {"email": email, "senha": "senhasegura1"})
+    token = login["token"]  # type: ignore[index]
+    _, profissionais = api("GET", "/profissionais", token=token)
+    rafael = next(p for p in profissionais if "Rafael" in p["nome"])  # type: ignore[union-attr]
+    status, _ = api("POST", "/sessoes", {"profissional_id": rafael["id"], "data_hora": f"{dia.isoformat()}T14:00:00", "modalidade": "Online"}, token)
+    assert status == 201, f"rival não conseguiu agendar: HTTP {status}"
+    ok("outra pessoa ocupou o mesmo horário (pela API)")
+
+    tocar(page, "Confirmar agendamento")
+    ver(page, "já tem uma sessão")  # mensagem do HTTP 409, mostrada pelo app
+    ok("conflito 409: o app avisa que o horário foi ocupado")
+    assert "Sessão agendada com sucesso" not in page.evaluate("document.querySelector('flt-semantics-host')?.innerText || ''"), "agendou mesmo com conflito"
+
+    # O horário ocupado some das opções e outro horário funciona.
+    tocar(page, "15:00")
+    tocar(page, "Confirmar agendamento")
+    ver(page, "Sessão agendada com sucesso")
+    ok("depois do conflito, outro horário é agendado e a lista atualiza")
+
+
 def fluxo_cadastro_novo(page: Page) -> None:
     """Cria uma conta de paciente pelo site, usa o app e exclui a conta."""
     email = f"e2e{int(time.time())}@teste.com"
@@ -244,7 +389,7 @@ def fluxo_cadastro_novo(page: Page) -> None:
     digitar(page, "Seu nome", "Pessoa de Teste")
     tocar(page, "Continuar")
     tocar(page, "Paciente")
-    ver(page, "Buscar")
+    ver_ou_aceitar(page, "Buscar")
     ok("cadastro de nova conta de paciente entra no app")
     tocar(page, "Perfil")
     ver(page, email)  # o nome fica dentro de um campo de texto (sem rótulo); o e-mail aparece como texto
@@ -277,12 +422,18 @@ def main() -> int:
     inicio = time.time()
     falhas: list[str] = []
     with sync_playwright() as pw:
+        try:
+            verificar_pwa()
+        except (AssertionError, urllib.error.URLError, KeyError, ValueError) as exc:
+            print(f"::error title=PWA::{exc}")
+            falhas.append("pwa")
         browser = pw.chromium.launch()
         fluxos = (
             ("paciente", fluxo_paciente, False),
             ("profissional", fluxo_cadastro_e_profissional, False),
             ("acoes", fluxo_acoes_paciente, False),
             ("cadastro", fluxo_cadastro_novo, False),
+            ("conflito", fluxo_conflito, False),
             ("celular", fluxo_celular, True),
         )
         for nome, fluxo, celular in fluxos:
@@ -292,6 +443,11 @@ def main() -> int:
             else:
                 opcoes.update(viewport={"width": 1100, "height": 800})
             ctx = browser.new_context(**opcoes)
+            # Registra qualquer bloqueio da Política de Segurança de Conteúdo (CSP) da página.
+            ctx.add_init_script(
+                "window.__csp = []; document.addEventListener('securitypolicyviolation', e => "
+                "window.__csp.push(e.violatedDirective + ' <- ' + (e.blockedURI || 'inline')));"
+            )
             page = ctx.new_page()
             erros_console: list[str] = []
             page.on(
@@ -305,6 +461,9 @@ def main() -> int:
             print(f"== fluxo: {nome}", flush=True)
             try:
                 fluxo(page)
+                violacoes = page.evaluate("window.__csp || []")
+                assert not violacoes, f"CSP bloqueou recursos: {sorted(set(violacoes))[:8]}"
+                ok(f"nenhuma violação de CSP no fluxo {nome}")
             except (PWTimeout, AssertionError) as exc:
                 page.screenshot(path=str(SHOTS / f"falha-{nome}.png"))
                 arvore = page.evaluate("document.querySelector('flt-semantics-host')?.innerText || '(sem árvore de acessibilidade)'")

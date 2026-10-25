@@ -65,6 +65,10 @@ jobs:
           [[ "$(curl -ksS -o /dev/null -w '%{http_code}' "$base/api/docs")" != 200 ]]
           # cabeçalhos de segurança do Caddy
           curl -ksSI "$base/" | grep -qi '^strict-transport-security'
+          # CSP presente e sem as liberações perigosas
+          csp=$(curl -ksSI "$base/" | grep -i '^content-security-policy' || true)
+          [[ -n "$csp" ]] || { echo 'sem Content-Security-Policy'; exit 1; }
+          ! grep -qE "script-src[^;]*('unsafe-inline'|'unsafe-eval'|\*)" <<< "$csp"
 
       - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
         with:

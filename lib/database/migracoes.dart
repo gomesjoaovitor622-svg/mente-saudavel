@@ -17,11 +17,12 @@ typedef Migracao = Future<void> Function(DatabaseExecutor db);
 class Migracoes {
   Migracoes._();
 
-  static const int versaoAtual = 3;
+  static const int versaoAtual = 4;
 
   static final Map<int, Migracao> _passos = {
     2: _v2,
     3: _v3,
+    4: _v4,
   };
 
   /// Aplica, em ordem, todos os passos de [de] (exclusive) até [para] (inclusive).
@@ -60,6 +61,16 @@ class Migracoes {
     }
     await db.execute(DatabaseSchema.idxSessaoProfissionalUnico);
     await db.execute(DatabaseSchema.idxSessaoPacienteUnico);
+  }
+
+  // v3 -> v4: LGPD (aceite dos termos e anonimização) + fila offline + cache de leitura.
+  static Future<void> _v4(DatabaseExecutor db) async {
+    await _adicionarColuna(db, 'usuarios', 'aceite_termos_versao', 'TEXT');
+    await _adicionarColuna(db, 'usuarios', 'aceite_termos_em', 'TEXT');
+    await _adicionarColuna(db, 'usuarios', 'anonimizado_em', 'TEXT');
+    await db.execute(DatabaseSchema.outbox);
+    await db.execute(DatabaseSchema.idxOutbox);
+    await db.execute(DatabaseSchema.cacheKv);
   }
 
   /// `ADD COLUMN` que não falha se a coluna já existir (migração repetível).
