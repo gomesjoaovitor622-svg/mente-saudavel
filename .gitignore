@@ -15,3 +15,4 @@ ci/api-validation/relatorios/
 deploy/backups/
 env/*.json
 !env/*.json.example
+logs-locais/
