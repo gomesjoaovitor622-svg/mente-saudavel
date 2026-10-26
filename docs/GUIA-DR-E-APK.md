@@ -10,7 +10,7 @@ cd deploy
 docker compose -f docker-compose.prod.yml up -d --build   # sobe tudo (1ª vez ~10 min)
 CONFIRMO=sim ./backup/ensaio-dr.sh                        # APAGA o banco: só em teste
 ```
-O script termina com `ENSAIO OK` se o registro voltou e o Alembic continua em `0001`.
+O script termina com `ENSAIO OK` se o registro voltou e o Alembic continua na versão esperada (hoje `0002`).
 
 ### 1.2 Manual, passo a passo
 ```bash
@@ -18,7 +18,7 @@ alias dc='docker compose -f docker-compose.prod.yml'
 # 1) registro de teste
 dc exec -T db psql -U mente -d mente_saudavel -c \
  "INSERT INTO usuarios (nome,email,senha_hash,perfil,criado_em) VALUES ('Teste DR','dr@exemplo.com','x','paciente',now());"
-dc exec -T db psql -U mente -d mente_saudavel -tAc "SELECT version_num FROM alembic_version"   # 0001
+dc exec -T db psql -U mente -d mente_saudavel -tAc "SELECT version_num FROM alembic_version"   # 0002 (versão mais recente)
 
 # 2) backup + checksum
 dc exec -T backup sh /usr/local/bin/backup-postgres.sh
@@ -35,7 +35,7 @@ dc run --rm --no-deps --entrypoint sh backup /usr/local/bin/restore-postgres.sh 
 
 # 5) verificar
 dc exec -T db psql -U mente -d mente_saudavel -tAc "SELECT email FROM usuarios WHERE email='dr@exemplo.com'"
-dc exec -T db psql -U mente -d mente_saudavel -tAc "SELECT version_num FROM alembic_version"   # 0001
+dc exec -T db psql -U mente -d mente_saudavel -tAc "SELECT version_num FROM alembic_version"   # 0002 (versão mais recente)
 dc up -d                                    # o serviço migrate roda e não encontra nada a fazer
 dc exec -T db psql -U mente -d mente_saudavel -c "DELETE FROM usuarios WHERE email='dr@exemplo.com'"
 ```

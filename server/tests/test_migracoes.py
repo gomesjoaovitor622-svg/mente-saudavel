@@ -87,3 +87,23 @@ def test_downgrade_remove_tudo(engine: Engine) -> None:
         command.downgrade(cfg, "base")
     with engine.connect() as conn:
         assert "usuarios" not in MigrationContext.configure(conn).connection.dialect.get_table_names(conn)  # type: ignore[union-attr]
+
+
+def test_migracao_0002_nao_perde_dados_e_da_default_zero(engine: Engine) -> None:
+    cfg = config_alembic()
+    with engine.begin() as conn:
+        cfg.attributes["connection"] = conn
+        command.upgrade(cfg, "0001")
+        conn.execute(
+            text("INSERT INTO usuarios (id, nome, email, senha_hash, perfil, criado_em) VALUES (1, 'A', 'a@x.com', 'h', 'paciente', :t)"), {"t": datetime(2030, 1, 1)}
+        )
+    with engine.begin() as conn:
+        cfg.attributes["connection"] = conn
+        command.upgrade(cfg, "0002")
+    with engine.connect() as conn:
+        assert conn.execute(text("SELECT token_versao FROM usuarios WHERE id = 1")).scalar() == 0
+    with engine.begin() as conn:
+        cfg.attributes["connection"] = conn
+        command.downgrade(cfg, "0001")
+    with engine.connect() as conn:
+        assert conn.execute(text("SELECT email FROM usuarios WHERE id = 1")).scalar() == "a@x.com"

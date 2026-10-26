@@ -42,6 +42,7 @@ _COLUNAS_NOVAS: tuple[tuple[str, str, str], ...] = (
     ("usuarios", "aceite_termos_em", "TIMESTAMP"),
     ("usuarios", "anonimizado_em", "TIMESTAMP"),
     ("sessoes", "chave_idempotencia", "VARCHAR(64)"),
+    ("usuarios", "token_versao", "INTEGER NOT NULL DEFAULT 0"),
 )
 
 

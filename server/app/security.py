@@ -39,14 +39,21 @@ def verificar_senha(senha: str, armazenado: str) -> bool:
 HASH_FALSO = hash_senha(secrets.token_urlsafe(16))
 
 
-def criar_token(user_id: int, segredo: str, ttl_horas: int) -> str:
+def criar_token(user_id: int, segredo: str, ttl_horas: int, versao: int = 0) -> str:
+    """`versao` (claim "tv") permite revogar todos os tokens de uma pessoa: basta aumentá-la no banco."""
     agora = int(time.time())
-    return jwt.encode({"sub": str(user_id), "iat": agora, "exp": agora + ttl_horas * 3600}, segredo, algorithm="HS256")
+    return jwt.encode({"sub": str(user_id), "tv": versao, "iat": agora, "exp": agora + ttl_horas * 3600}, segredo, algorithm="HS256")
+
+
+def ler_token_com_versao(token: str, segredo: str) -> tuple[int, int] | None:
+    """(id do usuário, versão do token). Tokens antigos, sem "tv", valem como versão 0."""
+    try:
+        dados: dict[str, Any] = jwt.decode(token, segredo, algorithms=["HS256"], options={"require": ["exp", "sub"]})
+        return int(dados["sub"]), int(dados.get("tv", 0))
+    except (jwt.PyJWTError, ValueError, KeyError, TypeError):
+        return None
 
 
 def ler_token(token: str, segredo: str) -> int | None:
-    try:
-        dados: dict[str, Any] = jwt.decode(token, segredo, algorithms=["HS256"], options={"require": ["exp", "sub"]})
-        return int(dados["sub"])
-    except (jwt.PyJWTError, ValueError, KeyError):
-        return None
+    lido = ler_token_com_versao(token, segredo)
+    return lido[0] if lido else None

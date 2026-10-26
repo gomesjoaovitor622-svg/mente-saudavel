@@ -158,7 +158,9 @@ class AuthService {
 
   static Future<void> alterarSenha(String senhaAtual, String novaSenha) async {
     if (usaServidor) {
-      await ApiClient.post('/auth/senha', corpo: {'senha_atual': senhaAtual, 'nova_senha': novaSenha});
+      final r = await ApiClient.post('/auth/senha', corpo: {'senha_atual': senhaAtual, 'nova_senha': novaSenha});
+      // O servidor revoga os tokens antigos ao trocar a senha e devolve um novo para este aparelho.
+      if (r is Map && r['token'] is String) await ApiClient.salvarToken(r['token'] as String);
       return;
     }
     final usuario = atual.value!;

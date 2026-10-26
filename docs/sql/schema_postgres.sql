@@ -87,5 +87,11 @@ CREATE INDEX idx_avaliacoes_prof ON avaliacoes (profissional_id);
 
 INSERT INTO alembic_version (version_num) VALUES ('0001') RETURNING alembic_version.version_num;
 
+-- Running upgrade 0001 -> 0002
+
+ALTER TABLE usuarios ADD COLUMN token_versao INTEGER DEFAULT '0' NOT NULL;
+
+UPDATE alembic_version SET version_num='0002' WHERE alembic_version.version_num = '0001';
+
 COMMIT;
 

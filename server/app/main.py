@@ -23,7 +23,7 @@ from app.db import Base, garantir_colunas, garantir_indices, make_engine, make_s
 from app.migracoes import exigir_banco_migrado
 from app.models import Avaliacao, Humor, Sessao, Usuario
 from app.observabilidade import REQUEST_ID_RE, Metricas, configurar_logs, limpar_texto_cliente
-from app.security import HASH_FALSO, criar_token, hash_senha, ler_token, verificar_senha
+from app.security import HASH_FALSO, criar_token, hash_senha, ler_token_com_versao, verificar_senha
 
 
 def _usuario_out(u: Usuario) -> dict[str, Any]:
@@ -60,7 +60,13 @@ def _sessao_out(s: Sessao, *, ver_anotacoes: bool) -> dict[str, Any]:
     }
 
 
-def _avaliacao_out(a: Avaliacao) -> dict[str, Any]:
+def _nome_curto(nome: str) -> str:
+    """ "Maria da Silva Souza" -> "Maria S.": quem não participou da sessão não precisa do nome completo."""
+    partes = nome.split()
+    return nome if len(partes) < 2 else f"{partes[0]} {partes[-1][0]}."
+
+
+def _avaliacao_out(a: Avaliacao, ver_nome_completo: bool = False) -> dict[str, Any]:
     return {
         "id": a.id,
         "sessao_id": a.sessao_id,
@@ -69,7 +75,7 @@ def _avaliacao_out(a: Avaliacao) -> dict[str, Any]:
         "nota": a.nota,
         "comentario": a.comentario,
         "criado_em": a.criado_em.isoformat(),
-        "paciente_nome": a.paciente.nome,
+        "paciente_nome": a.paciente.nome if ver_nome_completo else _nome_curto(a.paciente.nome),
     }
 
 
@@ -92,6 +98,9 @@ class _LimiteLogin:
 
     def checar(self, chave: str) -> None:
         agora = time.monotonic()
+        if len(self._tentativas) > 10_000:  # evita crescer sem fim com chaves (e-mails/IPs) que nunca voltam
+            for k in [k for k, f in self._tentativas.items() if not f or agora - f[-1] > 60]:
+                del self._tentativas[k]
         fila = self._tentativas[chave]
         while fila and agora - fila[0] > 60:
             fila.popleft()
@@ -192,9 +201,9 @@ def create_app(settings: Settings | None = None, engine: Engine | None = None) -
                 raise HTTPException(403, "Requisição não permitida.")
         if not token:
             raise HTTPException(401, "Não autenticado.")
-        uid = ler_token(token, cfg.jwt_secret)
-        user = db.get(Usuario, uid) if uid is not None else None
-        if user is None or user.anonimizado_em is not None:
+        lido = ler_token_com_versao(token, cfg.jwt_secret)
+        user = db.get(Usuario, lido[0]) if lido is not None else None
+        if user is None or user.anonimizado_em is not None or lido is None or lido[1] != user.token_versao:
             raise HTTPException(401, "Sessão expirada. Entre novamente.")
         return user
 
@@ -249,7 +258,7 @@ def create_app(settings: Settings | None = None, engine: Engine | None = None) -
 
     # ------------------------------------------------------------------- auth
     def emitir(user: Usuario, response: Response) -> dict[str, Any]:
-        token = criar_token(user.id, cfg.jwt_secret, cfg.jwt_ttl_hours)
+        token = criar_token(user.id, cfg.jwt_secret, cfg.jwt_ttl_hours, user.token_versao)
         response.set_cookie(COOKIE_SESSAO, token, max_age=cfg.jwt_ttl_hours * 3600, httponly=True, secure=cfg.cookie_secure, samesite="strict", path="/")
         return {"token": token, "usuario": _usuario_out(user)}
 
@@ -319,34 +328,42 @@ def create_app(settings: Settings | None = None, engine: Engine | None = None) -
         }
         if souprof:
             recebidas = db.scalars(select(Avaliacao).where(Avaliacao.profissional_id == user.id).order_by(Avaliacao.criado_em.asc()))
-            dados["avaliacoes_recebidas"] = [_avaliacao_out(a) for a in recebidas]
+            dados["avaliacoes_recebidas"] = [_avaliacao_out(a, True) for a in recebidas]
         else:
             feitas = db.scalars(select(Avaliacao).where(Avaliacao.paciente_id == user.id).order_by(Avaliacao.criado_em.asc()))
-            dados["avaliacoes_feitas"] = [_avaliacao_out(a) for a in feitas]
+            dados["avaliacoes_feitas"] = [_avaliacao_out(a, True) for a in feitas]
             humor = db.scalars(select(Humor).where(Humor.usuario_id == user.id).order_by(Humor.data_hora.asc()))
             dados["humor"] = [_humor_out(h) for h in humor]
         return dados
 
     @app.patch("/auth/eu")
     def atualizar_eu(body: schemas.PerfilIn, user: Eu, db: Db) -> dict[str, Any]:
+        if user.perfil == "profissional" and body.registro is not None and not body.registro.strip():
+            raise HTTPException(422, "O registro profissional (CRP) não pode ficar vazio.")
         user.nome = body.nome
         if user.perfil == "profissional":
-            user.registro = body.registro or None
+            if body.registro is not None:  # omitido = mantém o atual
+                user.registro = body.registro
             user.especialidade = body.especialidade or None
             user.endereco = body.endereco or None
             user.valor_sessao_centavos = body.valor_sessao_centavos
         db.commit()
         return _usuario_out(user)
 
-    @app.post("/auth/senha", status_code=204)
-    def alterar_senha(body: schemas.SenhaIn, user: Eu, db: Db) -> Response:
+    @app.post("/auth/senha")
+    def alterar_senha(body: schemas.SenhaIn, user: Eu, db: Db, response: Response) -> dict[str, Any]:
+        """Troca a senha e REVOGA os outros aparelhos: devolve um token novo só para quem acabou de trocar."""
+        chave = f"senha|{user.id}"
+        limite.checar(chave)  # quem roubou um token não pode adivinhar a senha atual à vontade
         if not verificar_senha(body.senha_atual, user.senha_hash):
             raise HTTPException(400, "A senha atual está incorreta.")
+        limite.limpar(chave)
         if len(body.nova_senha) < cfg.password_min:
             raise HTTPException(422, f"A senha deve ter pelo menos {cfg.password_min} caracteres.")
         user.senha_hash = hash_senha(body.nova_senha)
+        user.token_versao += 1
         db.commit()
-        return Response(status_code=204)
+        return emitir(user, response)
 
     @app.delete("/auth/eu", status_code=204)
     def excluir_conta(user: Eu, db: Db) -> Response:
@@ -456,7 +473,8 @@ def create_app(settings: Settings | None = None, engine: Engine | None = None) -
     @app.get("/profissionais/{prof_id}/avaliacoes")
     def avaliacoes_do_profissional(prof_id: int, user: Eu, db: Db, limite: int = Query(default=30, ge=1, le=1000)) -> list[dict[str, Any]]:
         stmt = select(Avaliacao).where(Avaliacao.profissional_id == prof_id).order_by(Avaliacao.criado_em.desc()).limit(limite)
-        return [_avaliacao_out(a) for a in db.scalars(stmt)]
+        # O nome completo do paciente só aparece para ele mesmo e para o profissional avaliado.
+        return [_avaliacao_out(a, user.id in (prof_id, a.paciente_id)) for a in db.scalars(stmt)]
 
     @app.get("/profissionais/{prof_id}/horas-ocupadas")
     def horas_ocupadas(prof_id: int, user: Eu, db: Db, dia: datetime) -> list[int]:
@@ -479,6 +497,7 @@ def create_app(settings: Settings | None = None, engine: Engine | None = None) -
         ate: datetime | None = None,
         nao_canceladas: bool = False,
         paciente_id: int | None = None,
+        limite: int = Query(default=1000, ge=1, le=5000),  # teto de segurança: uma conta não devolve milhões de linhas
     ) -> list[dict[str, Any]]:
         souprof = user.perfil == "profissional"
         stmt = select(Sessao).where((Sessao.profissional_id if souprof else Sessao.paciente_id) == user.id)
@@ -493,7 +512,7 @@ def create_app(settings: Settings | None = None, engine: Engine | None = None) -
         if paciente_id is not None and souprof:
             stmt = stmt.where(Sessao.paciente_id == paciente_id)
         stmt = stmt.order_by(Sessao.data_hora.asc() if (de or ate) else Sessao.data_hora.desc())
-        return [_sessao_out(s, ver_anotacoes=souprof) for s in db.scalars(stmt)]
+        return [_sessao_out(s, ver_anotacoes=souprof) for s in db.scalars(stmt.limit(limite))]
 
     @app.get("/sessoes/conflito")
     def conflito(user: Eu, db: Db, profissional_id: int, data_hora: datetime, ignorar_id: int = -1) -> dict[str, str | None]:
@@ -662,7 +681,7 @@ def create_app(settings: Settings | None = None, engine: Engine | None = None) -
     def ver_avaliacao(sessao_id: int, user: Eu, db: Db) -> dict[str, Any] | None:
         s = carregar_sessao(db, sessao_id, user)
         a = db.scalar(select(Avaliacao).where(Avaliacao.sessao_id == s.id))
-        return _avaliacao_out(a) if a else None
+        return _avaliacao_out(a, True) if a else None
 
     @app.put("/sessoes/{sessao_id}/avaliacao")
     def avaliar(sessao_id: int, body: schemas.AvaliacaoIn, user: Eu, db: Db) -> dict[str, Any]:
@@ -678,7 +697,7 @@ def create_app(settings: Settings | None = None, engine: Engine | None = None) -
         a.comentario = body.comentario
         a.criado_em = datetime.now().replace(microsecond=0)
         db.commit()
-        return _avaliacao_out(a)
+        return _avaliacao_out(a, True)
 
     # ------------------------------------------------------------------- humor
     @app.get("/humor")

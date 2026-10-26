@@ -152,10 +152,12 @@ def test_perfil_senha_e_exclusao(client):
     r = client.patch("/auth/eu", headers=pro["h"], json={"nome": "Dra. Nova", "registro": "06/1", "especialidade": "TCC", "endereco": "Rua 1"})
     assert r.json()["endereco"] == "Rua 1"
     assert client.post("/auth/senha", headers=pro["h"], json={"senha_atual": "errada", "nova_senha": "nova-senha-123"}).status_code == 400
-    assert client.post("/auth/senha", headers=pro["h"], json={"senha_atual": "senha-forte-1", "nova_senha": "nova-senha-123"}).status_code == 204
+    trocou = client.post("/auth/senha", headers=pro["h"], json={"senha_atual": "senha-forte-1", "nova_senha": "nova-senha-123"})
+    assert trocou.status_code == 200
+    novo = {"Authorization": f"Bearer {trocou.json()['token']}"}
     assert client.post("/auth/entrar", json={"email": "pro@x.com", "senha": "nova-senha-123"}).status_code == 200
-    assert client.delete("/auth/eu", headers=pro["h"]).status_code == 204
-    assert client.get("/auth/eu", headers=pro["h"]).status_code == 401
+    assert client.delete("/auth/eu", headers=novo).status_code == 204
+    assert client.get("/auth/eu", headers=novo).status_code == 401
 
 
 def test_exclusao_de_conta_apaga_em_cascata(client):
@@ -262,6 +264,7 @@ def test_migracao_adiciona_colunas_em_banco_antigo(tmp_path):
         "usuarios.aceite_termos_em",
         "usuarios.aceite_termos_versao",
         "usuarios.anonimizado_em",
+        "usuarios.token_versao",
         "usuarios.valor_sessao_centavos",
     ]
     assert garantir_colunas(engine) == []  # idempotente
@@ -673,3 +676,62 @@ def test_mesmo_agendamento_reenviado_em_paralelo_cria_so_uma_sessao(client):
         codigos = list(ex.map(lambda _: _agendar_chave(client, pac, pro["id"], quando, "chave-reenvio-paralelo").status_code, range(6)))
     assert set(codigos) <= {200, 201} and codigos.count(201) == 1, codigos
     assert len(client.get("/sessoes", headers=pac["h"]).json()) == 1
+
+
+# ---------------------------------------------------------------- revogação de tokens e privacidade (auditoria)
+def test_trocar_a_senha_revoga_os_tokens_antigos_e_mantem_o_novo(client):
+    pac = cadastrar(client, "pac-rev@x.com")
+    assert client.get("/auth/eu", headers=pac["h"]).status_code == 200
+    r = client.post("/auth/senha", headers=pac["h"], json={"senha_atual": "senha-forte-1", "nova_senha": "outra-senha-99"})
+    assert r.status_code == 200
+    assert client.get("/auth/eu", headers=pac["h"]).status_code == 401  # token antigo (aparelho roubado/perdido)
+    assert client.get("/auth/eu", headers={"Authorization": f"Bearer {r.json()['token']}"}).status_code == 200
+    # quem entra de novo recebe um token válido na versão atual
+    t = client.post("/auth/entrar", json={"email": "pac-rev@x.com", "senha": "outra-senha-99"}).json()["token"]
+    assert client.get("/auth/eu", headers={"Authorization": f"Bearer {t}"}).status_code == 200
+
+
+def test_token_antigo_sem_versao_continua_valendo(client):
+    """Compatibilidade: tokens emitidos antes da coluna token_versao não têm o claim "tv" (valem como versão 0)."""
+    import jwt as pyjwt
+
+    pac = cadastrar(client, "pac-legado@x.com")
+    antigo = pyjwt.encode({"sub": str(pac["id"]), "iat": 1, "exp": 4_000_000_000}, "x" * 40, algorithm="HS256")
+    assert client.get("/auth/eu", headers={"Authorization": f"Bearer {antigo}"}).status_code == 200
+
+
+def test_trocar_senha_tem_limite_de_tentativas(client):
+    pac = cadastrar(client, "pac-brute@x.com")
+    codigos = [client.post("/auth/senha", headers=pac["h"], json={"senha_atual": f"errada-{i}", "nova_senha": "qualquer-senha-1"}).status_code for i in range(7)]
+    assert codigos[:5] == [400] * 5 and 429 in codigos
+
+
+def test_avaliacao_nao_expoe_o_nome_completo_do_paciente_a_terceiros(client):
+    from sqlalchemy import update  # noqa: F401
+
+    pro = cadastrar(client, "pro-priv@x.com", "profissional")
+    pac = cadastrar(client, "pac-priv@x.com")
+    outro = cadastrar(client, "pac-priv2@x.com")
+    client.patch("/auth/eu", headers=pac["h"], json={"nome": "Maria da Silva Souza"})
+    sid = client.post("/sessoes", headers=pac["h"], json={"profissional_id": pro["id"], "data_hora": futuro(), "modalidade": "Online"}).json()["id"]
+    assert client.patch(f"/sessoes/{sid}", headers=pro["h"], json={"status": "concluida"}).status_code == 200
+    assert client.put(f"/sessoes/{sid}/avaliacao", headers=pac["h"], json={"nota": 5, "comentario": "ótimo"}).status_code == 200
+    visto_por_outro = client.get(f"/profissionais/{pro['id']}/avaliacoes", headers=outro["h"]).json()[0]["paciente_nome"]
+    assert visto_por_outro == "Maria S."
+    assert client.get(f"/profissionais/{pro['id']}/avaliacoes", headers=pro["h"]).json()[0]["paciente_nome"] == "Maria da Silva Souza"
+    assert client.get(f"/profissionais/{pro['id']}/avaliacoes", headers=pac["h"]).json()[0]["paciente_nome"] == "Maria da Silva Souza"
+
+
+def test_profissional_nao_pode_apagar_o_proprio_registro_profissional(client):
+    pro = cadastrar(client, "pro-crp@x.com", "profissional")
+    r = client.patch("/auth/eu", headers=pro["h"], json={"nome": "Dra. Sem CRP", "registro": ""})
+    assert r.status_code == 422
+
+
+def test_listagem_de_sessoes_respeita_o_limite(client):
+    pro = cadastrar(client, "pro-lim@x.com", "profissional")
+    pac = cadastrar(client, "pac-lim@x.com")
+    for h in (9, 10, 11):
+        assert client.post("/sessoes", headers=pac["h"], json={"profissional_id": pro["id"], "data_hora": futuro(hora=h), "modalidade": "Online"}).status_code == 201
+    assert len(client.get("/sessoes", headers=pac["h"], params={"limite": 2}).json()) == 2
+    assert client.get("/sessoes", headers=pac["h"], params={"limite": 0}).status_code == 422

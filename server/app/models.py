@@ -30,6 +30,8 @@ class Usuario(Base):
     aceite_termos_versao: Mapped[str | None] = mapped_column(String(20), nullable=True)
     aceite_termos_em: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
     anonimizado_em: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    # Sobe quando a senha muda: os tokens emitidos antes deixam de valer (roubo de token, aparelho perdido).
+    token_versao: Mapped[int] = mapped_column(Integer, nullable=False, server_default="0", default=0)
 
 
 # Índice único PARCIAL: só vale para sessões não canceladas (cancelar libera o horário).
