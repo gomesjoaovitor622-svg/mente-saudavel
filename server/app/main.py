@@ -20,6 +20,7 @@ from sqlalchemy.orm import Session, sessionmaker
 from app import schemas
 from app.config import Settings, load_settings
 from app.db import Base, garantir_colunas, garantir_indices, make_engine, make_session_factory, session_iter
+from app.migracoes import exigir_banco_migrado
 from app.models import Avaliacao, Humor, Sessao, Usuario
 from app.observabilidade import REQUEST_ID_RE, Metricas, configurar_logs, limpar_texto_cliente
 from app.security import HASH_FALSO, criar_token, hash_senha, ler_token, verificar_senha
@@ -109,13 +110,17 @@ _CHAVE_IDEMPOTENCIA = re.compile(r"[A-Za-z0-9_-]{8,64}")
 def create_app(settings: Settings | None = None, engine: Engine | None = None) -> FastAPI:
     cfg = settings or load_settings()
     eng = engine or make_engine(cfg.database_url)
-    Base.metadata.create_all(eng)
-    garantir_colunas(eng)
-    indices_faltando = garantir_indices(eng)
-    if indices_faltando:
-        logging.getLogger("mente_saudavel").warning(
-            "Há sessões ativas duplicadas: não foi possível criar os índices %s. Cancele as duplicadas e reinicie.", indices_faltando
-        )
+    if cfg.schema_mode == "alembic":
+        # Produção: o esquema só muda por migrações versionadas. Falha ao subir se o banco estiver em outra versão.
+        exigir_banco_migrado(eng)
+    else:
+        Base.metadata.create_all(eng)
+        garantir_colunas(eng)
+        indices_faltando = garantir_indices(eng)
+        if indices_faltando:
+            logging.getLogger("mente_saudavel").warning(
+                "Há sessões ativas duplicadas: não foi possível criar os índices %s. Cancele as duplicadas e reinicie.", indices_faltando
+            )
     factory: sessionmaker[Session] = make_session_factory(eng)
     limite = _LimiteLogin(cfg.login_max_attempts)
     limite_cadastro = _LimiteLogin(cfg.signup_max_attempts)  # por IP: evita criação em massa de contas

@@ -27,10 +27,26 @@ class Settings:
     telemetry_max_per_minute: int = 30  # eventos enviados pelo app, por IP
     log_level: str = "INFO"
     cookie_secure: bool = True  # cookie de sessão só por HTTPS (desligue apenas em desenvolvimento local)
+    # "auto": cria/ajusta tabelas ao subir (desenvolvimento e testes). "alembic": o esquema só muda por migrações
+    # versionadas (`alembic upgrade head`); a API recusa subir se o banco não estiver na versão esperada.
+    schema_mode: str = "auto"
 
     @property
     def is_dev(self) -> bool:
         return self.env == "development"
+
+
+def normalizar_url_banco(url: str) -> str:
+    """Aceita `postgres://` e `postgresql://` (formatos comuns em hospedagens) e usa o driver psycopg 3."""
+    if url.startswith("postgres://"):
+        return "postgresql+psycopg://" + url[len("postgres://") :]
+    if url.startswith("postgresql://"):
+        return "postgresql+psycopg://" + url[len("postgresql://") :]
+    return url
+
+
+def url_do_banco() -> str:
+    return normalizar_url_banco(os.environ.get("DATABASE_URL", "sqlite:///./data/mente_saudavel.db"))
 
 
 def load_settings() -> Settings:
@@ -45,12 +61,10 @@ def load_settings() -> Settings:
     origins = tuple(o.strip() for o in os.environ.get("CORS_ORIGINS", "").split(",") if o.strip())
     if "*" in origins:
         raise RuntimeError("CORS_ORIGINS não pode conter '*': liste as origens exatas.")
-    db_url = os.environ.get("DATABASE_URL", "sqlite:///./data/mente_saudavel.db")
-    # Aceita o formato antigo "postgres://" de algumas plataformas.
-    if db_url.startswith("postgres://"):
-        db_url = "postgresql+psycopg://" + db_url[len("postgres://") :]
-    elif db_url.startswith("postgresql://"):
-        db_url = "postgresql+psycopg://" + db_url[len("postgresql://") :]
+    db_url = url_do_banco()
+    schema_mode = os.environ.get("SCHEMA_MODE", "auto").strip().lower()
+    if schema_mode not in {"auto", "alembic"}:
+        raise RuntimeError("SCHEMA_MODE deve ser 'auto' ou 'alembic'.")
     return Settings(
         env=env,
         database_url=db_url,
@@ -64,4 +78,5 @@ def load_settings() -> Settings:
         telemetry_max_per_minute=int(os.environ.get("TELEMETRY_MAX_PER_MINUTE", "30")),
         log_level=os.environ.get("LOG_LEVEL", "INFO"),
         cookie_secure=_bool("COOKIE_SECURE", env != "development"),
+        schema_mode=schema_mode,
     )

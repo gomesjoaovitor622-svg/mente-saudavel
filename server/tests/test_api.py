@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import logging
+import os
 from datetime import datetime, timedelta
 
 import pytest
@@ -645,3 +646,30 @@ def test_historico_financeiro_lista_meses_com_totais(client):
 def test_historico_financeiro_e_so_do_profissional(client):
     pac = cadastrar(client, "pac-fin2@x.com")
     assert client.get("/profissional/financeiro/historico", headers=pac["h"]).status_code == 403
+
+
+# ---------------------------------------------------------------- corrida real (só roda com PostgreSQL: TEST_DATABASE_URL)
+@pytest.mark.skipif(not os.environ.get("TEST_DATABASE_URL"), reason="precisa de PostgreSQL real (TEST_DATABASE_URL)")
+def test_corrida_de_agendamentos_simultaneos_gera_uma_sessao_e_o_resto_409(client):
+    from concurrent.futures import ThreadPoolExecutor
+
+    pro = cadastrar(client, "pro-corrida@x.com", "profissional")
+    pacs = [cadastrar(client, f"pac-corrida{i}@x.com") for i in range(8)]
+    quando = futuro()
+    with ThreadPoolExecutor(max_workers=8) as ex:
+        codigos = list(ex.map(lambda p: _agendar_chave(client, p, pro["id"], quando, f"chave-corrida-{p['id']}").status_code, pacs))
+    assert sorted(codigos) == [201] + [409] * 7, codigos
+    assert len(client.get("/sessoes", headers=pro["h"]).json()) == 1
+
+
+@pytest.mark.skipif(not os.environ.get("TEST_DATABASE_URL"), reason="precisa de PostgreSQL real (TEST_DATABASE_URL)")
+def test_mesmo_agendamento_reenviado_em_paralelo_cria_so_uma_sessao(client):
+    from concurrent.futures import ThreadPoolExecutor
+
+    pro = cadastrar(client, "pro-paralelo@x.com", "profissional")
+    pac = cadastrar(client, "pac-paralelo@x.com")
+    quando = futuro()
+    with ThreadPoolExecutor(max_workers=6) as ex:
+        codigos = list(ex.map(lambda _: _agendar_chave(client, pac, pro["id"], quando, "chave-reenvio-paralelo").status_code, range(6)))
+    assert set(codigos) <= {200, 201} and codigos.count(201) == 1, codigos
+    assert len(client.get("/sessoes", headers=pac["h"]).json()) == 1
