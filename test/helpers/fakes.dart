@@ -31,9 +31,33 @@ class FakeSessaoRepository extends Fake implements SessaoRepository {
   @override
   Future<int> pacientesAtivos(int profissionalId) async => sessoes.map((s) => s.pacienteId).toSet().length;
 
+  final List<DateTime> diasConsultados = [];
+  final List<PacienteResumo> pacientes = [];
+
   @override
-  Future<List<Sessao>> doProfissionalNoDia(int profissionalId, DateTime dia, {bool incluirCanceladas = true}) async =>
-      sessoes.where((s) => s.profissionalId == profissionalId).toList();
+  Future<List<Sessao>> doProfissionalNoDia(int profissionalId, DateTime dia, {bool incluirCanceladas = true}) async {
+    consultas++;
+    diasConsultados.add(dia);
+    final erro = falhar;
+    if (erro != null) {
+      falhar = null;
+      throw erro;
+    }
+    return sessoes
+        .where((s) => s.profissionalId == profissionalId && s.dataHora.year == dia.year && s.dataHora.month == dia.month && s.dataHora.day == dia.day)
+        .toList();
+  }
+
+  @override
+  Future<List<PacienteResumo>> pacientesDoProfissional(int profissionalId) async {
+    consultas++;
+    final erro = falhar;
+    if (erro != null) {
+      falhar = null;
+      throw erro;
+    }
+    return List.of(pacientes);
+  }
 }
 
 /// Avaliações falsas: o painel só usa `doProfissional`.
@@ -84,4 +108,12 @@ Usuario profissionalDeTeste({int id = 99}) => Usuario(
       perfil: Perfil.profissional,
       registro: '06/12345',
       criadoEm: DateTime(2030).toIso8601String(),
+    );
+
+PacienteResumo pacienteResumoDeTeste(String nome, {int id = 1, String? email, int total = 3, int concluidas = 1}) => PacienteResumo(
+      id: id,
+      nome: nome,
+      email: email ?? '${nome.toLowerCase().replaceAll(' ', '.')}@teste.com',
+      totalSessoes: total,
+      concluidas: concluidas,
     );

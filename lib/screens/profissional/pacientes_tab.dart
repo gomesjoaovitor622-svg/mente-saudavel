@@ -1,32 +1,24 @@
 import 'package:flutter/material.dart';
-import 'package:mente_saudavel/app/dependencias.dart';
-import 'package:mente_saudavel/domain/repositories/sessao_repository.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:mente_saudavel/models/sessao.dart';
+import 'package:mente_saudavel/presentation/providers/profissional_providers.dart';
 import 'package:mente_saudavel/screens/profissional/paciente_detalhe_screen.dart';
-import 'package:mente_saudavel/services/auth_service.dart';
 import 'package:mente_saudavel/utils/formatters.dart';
 import 'package:mente_saudavel/widgets/componentes.dart';
+import 'package:mente_saudavel/widgets/medir_tela.dart';
 
-/// Pacientes que já têm (ou tiveram) sessão com o profissional.
-class PacientesTab extends StatefulWidget {
+/// Pacientes que já têm (ou tiveram) sessão com o profissional. A busca filtra a lista já carregada
+/// ([pacientesFiltradosProvider]); a tela só desenha o resultado.
+class PacientesTab extends ConsumerStatefulWidget {
   const PacientesTab({super.key});
 
   @override
-  State<PacientesTab> createState() => _PacientesTabState();
+  ConsumerState<PacientesTab> createState() => _PacientesTabState();
 }
 
-class _PacientesTabState extends State<PacientesTab> {
-  final SessaoRepository _dao = Dependencias.instancia.sessoes;
+class _PacientesTabState extends ConsumerState<PacientesTab> {
+  // O campo de texto é estado de widget (controller); o TEXTO é do provider, que zera ao trocar de conta.
   final TextEditingController _busca = TextEditingController();
-
-  List<PacienteResumo> _pacientes = [];
-  bool _carregando = true;
-
-  @override
-  void initState() {
-    super.initState();
-    _carregar();
-  }
 
   @override
   void dispose() {
@@ -34,61 +26,63 @@ class _PacientesTabState extends State<PacientesTab> {
     super.dispose();
   }
 
-  Future<void> _carregar() async {
-    try {
-      final lista = await _dao.pacientesDoProfissional(AuthService.atual.value!.id!);
-      if (!mounted) return;
-      setState(() {
-        _pacientes = lista;
-        _carregando = false;
-      });
-    } catch (_) {
-      if (!mounted) return;
-      setState(() => _carregando = false);
-      mostrarMensagem(context, 'Erro ao carregar os pacientes.', erro: true);
-    }
-  }
-
-  List<PacienteResumo> get _filtrados {
-    final termo = _busca.text.trim().toLowerCase();
-    if (termo.isEmpty) return _pacientes;
-    return _pacientes
-        .where((p) => p.nome.toLowerCase().contains(termo) || p.email.toLowerCase().contains(termo))
-        .toList();
-  }
-
   Future<void> _abrir(PacienteResumo paciente) async {
     await Navigator.push<void>(
       context,
       MaterialPageRoute(builder: (_) => PacienteDetalheScreen(paciente: paciente)),
     );
-    _carregar();
+    if (mounted) ref.invalidate(pacientesProvider);
   }
 
   @override
   Widget build(BuildContext context) {
-    final lista = _filtrados;
-    return Scaffold(
-      appBar: AppBar(title: const Text('Pacientes')),
-      body: _carregando
-          ? const Center(child: CircularProgressIndicator())
-          : Column(
+    // Se o texto do provider foi zerado (troca de conta), limpa também o campo.
+    ref.listen<String>(buscaPacientesProvider, (_, novo) {
+      if (novo != _busca.text) _busca.text = novo;
+    });
+    final texto = ref.watch(buscaPacientesProvider);
+    final todos = ref.watch(pacientesProvider);
+    final filtrados = ref.watch(pacientesFiltradosProvider);
+
+    return MedirTela(
+      nome: 'pacientes',
+      child: Scaffold(
+        appBar: AppBar(title: const Text('Pacientes')),
+        body: todos.when(
+          loading: () => const Center(child: CircularProgressIndicator()),
+          error: (_, __) => Center(
+            child: Padding(
+              padding: const EdgeInsets.all(24),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  const Text('Erro ao carregar os pacientes.'),
+                  const SizedBox(height: 12),
+                  FilledButton(onPressed: () => ref.invalidate(pacientesProvider), child: const Text('Tentar novamente')),
+                ],
+              ),
+            ),
+          ),
+          data: (todosOsPacientes) {
+            final lista = filtrados.valueOrNull ?? const <PacienteResumo>[];
+            return Column(
               children: [
                 Padding(
                   padding: const EdgeInsets.all(12),
                   child: TextField(
                     controller: _busca,
-                    onChanged: (_) => setState(() {}),
+                    onChanged: (v) => ref.read(buscaPacientesProvider.notifier).state = v,
                     decoration: campo(
                       'Buscar paciente',
                       icone: Icons.search,
-                      sufixo: _busca.text.isEmpty
+                      sufixo: texto.isEmpty
                           ? null
                           : IconButton(
                               icon: const Icon(Icons.clear),
+                              tooltip: 'Limpar busca',
                               onPressed: () {
                                 _busca.clear();
-                                setState(() {});
+                                ref.read(buscaPacientesProvider.notifier).state = '';
                               },
                             ),
                     ),
@@ -100,7 +94,7 @@ class _PacientesTabState extends State<PacientesTab> {
                           child: Padding(
                             padding: const EdgeInsets.all(24),
                             child: Text(
-                              _pacientes.isEmpty
+                              todosOsPacientes.isEmpty
                                   ? 'Você ainda não tem pacientes.\nEles aparecem aqui quando agendarem uma sessão com você.'
                                   : 'Nenhum paciente encontrado.',
                               textAlign: TextAlign.center,
@@ -108,29 +102,22 @@ class _PacientesTabState extends State<PacientesTab> {
                           ),
                         )
                       : RefreshIndicator(
-                          onRefresh: _carregar,
+                          onRefresh: () => ref.read(pacientesProvider.notifier).recarregar(),
                           child: ListView.builder(
                             physics: const AlwaysScrollableScrollPhysics(),
                             padding: const EdgeInsets.fromLTRB(12, 0, 12, 24),
                             itemCount: lista.length,
                             itemBuilder: (context, i) {
                               final p = lista[i];
-                              final proxima = p.proxima == null
-                                  ? 'Sem sessão futura'
-                                  : 'Próxima: ${formatarDataHora(p.proxima!)}';
+                              final proxima = p.proxima == null ? 'Sem sessão futura' : 'Próxima: ${formatarDataHora(p.proxima!)}';
                               return Card(
                                 child: ListTile(
                                   leading: CircleAvatar(
                                     backgroundColor: Colors.green.shade100,
-                                    child: Text(
-                                      p.nome.isNotEmpty ? p.nome[0].toUpperCase() : '?',
-                                      style: const TextStyle(color: verdeMarca),
-                                    ),
+                                    child: Text(p.nome.isNotEmpty ? p.nome[0].toUpperCase() : '?', style: const TextStyle(color: verdeMarca)),
                                   ),
                                   title: Text(p.nome, style: const TextStyle(fontWeight: FontWeight.w600)),
-                                  subtitle: Text(
-                                    '${p.concluidas} concluída(s) de ${p.totalSessoes}\n$proxima',
-                                  ),
+                                  subtitle: Text('${p.concluidas} concluída(s) de ${p.totalSessoes}\n$proxima'),
                                   isThreeLine: true,
                                   trailing: const Icon(Icons.chevron_right),
                                   onTap: () => _abrir(p),
@@ -141,7 +128,10 @@ class _PacientesTabState extends State<PacientesTab> {
                         ),
                 ),
               ],
-            ),
+            );
+          },
+        ),
+      ),
     );
   }
 }

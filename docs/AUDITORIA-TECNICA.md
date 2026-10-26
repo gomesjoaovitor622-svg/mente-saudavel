@@ -22,7 +22,7 @@ Validação: 64 testes no SQLite e 66 no PostgreSQL 16 passando; ruff e mypy `--
 - Profissional pode marcar uma sessão **futura** como `concluida` (infla o "recebido" do financeiro). Regra de negócio a decidir com você antes de mudar.
 
 **Média**
-- Telas Agenda, Pacientes, Início, Profissionais, Humor, Cadastro, Login e Perfil ainda usam `setState` com lógica de negócio dentro; sem testes de widget. Migração gradual para Riverpod recomendada, uma tela por vez, com `flutter analyze` e testes no CI (não é possível compilar Flutter no ambiente do assistente).
+- (Agenda e Pacientes já migradas para Riverpod em `profissional_providers.dart`.) Telas Início, Profissionais, Humor, Cadastro, Login e Perfil ainda usam `setState` com lógica de negócio dentro; sem testes de widget. Migração gradual para Riverpod recomendada, uma tela por vez, com `flutter analyze` e testes no CI (não é possível compilar Flutter no ambiente do assistente).
 - `BancoScreen` / `db_inspector` (inspetor do banco local) acessível pelo Perfil: verificar se deve existir em build de produção.
 - Sem paginação real (cursor) em listagens; o teto de 1000 linhas é só proteção.
 - `financeiro/historico` faz 2 consultas por mês (até 48); pode virar uma consulta agrupada.
