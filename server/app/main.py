@@ -13,7 +13,7 @@ from typing import Annotated, Any
 from fastapi import Depends, FastAPI, Header, HTTPException, Query, Request, Response
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse, PlainTextResponse
-from sqlalchemy import Engine, case, delete, func, select, update
+from sqlalchemy import Engine, case, delete, extract, func, select, update
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session, sessionmaker
 
@@ -639,11 +639,36 @@ def create_app(settings: Settings | None = None, engine: Engine | None = None) -
         """Faturamento dos últimos `meses` meses (o mais recente primeiro), para a tela de histórico."""
         exigir_perfil(user, "profissional")
         hoje = datetime.now()
+        meses_pedidos: list[tuple[int, int]] = []
         ano, num = hoje.year, hoje.month
-        saida: list[dict[str, Any]] = []
         for _ in range(meses):
-            saida.append(faturamento_do_mes(db, user, ano, num))
+            meses_pedidos.append((ano, num))
             ano, num = (ano - 1, 12) if num == 1 else (ano, num - 1)
+        # UMA consulta agrupada por mês e status (antes eram 2 consultas por mês).
+        ano_ini, mes_ini = meses_pedidos[-1]
+        ano_fim, mes_fim = meses_pedidos[0]
+        inicio = datetime(ano_ini, mes_ini, 1)
+        fim = datetime(ano_fim + (mes_fim == 12), 1 if mes_fim == 12 else mes_fim + 1, 1)
+        ano_col, mes_col = extract("year", Sessao.data_hora), extract("month", Sessao.data_hora)
+        linhas = db.execute(
+            select(ano_col, mes_col, Sessao.status, func.coalesce(func.sum(Sessao.valor_centavos), 0), func.count(Sessao.id))
+            .where(Sessao.profissional_id == user.id, Sessao.status.in_(("concluida", "agendada")), Sessao.data_hora >= inicio, Sessao.data_hora < fim)
+            .group_by(ano_col, mes_col, Sessao.status)
+        ).all()
+        totais = {(int(a), int(m), st): (int(v), int(q)) for a, m, st, v, q in linhas}
+        saida: list[dict[str, Any]] = []
+        for a, m in meses_pedidos:
+            recebido, concluidas = totais.get((a, m, "concluida"), (0, 0))
+            a_receber, agendadas = totais.get((a, m, "agendada"), (0, 0))
+            saida.append(
+                {
+                    "mes": f"{a:04d}-{m:02d}",
+                    "recebido_centavos": recebido,
+                    "sessoes_concluidas": concluidas,
+                    "a_receber_centavos": a_receber,
+                    "sessoes_agendadas": agendadas,
+                }
+            )
         return saida
 
     @app.get("/profissional/pacientes")

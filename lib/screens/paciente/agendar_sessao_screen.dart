@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:mente_saudavel/presentation/providers/paciente_providers.dart';
 import 'package:mente_saudavel/presentation/providers/sessoes_providers.dart';
 import 'package:mente_saudavel/domain/repositories/sessao_repository.dart';
 import 'package:mente_saudavel/database/usuario_dao.dart';
@@ -142,7 +143,7 @@ class _AgendarSessaoScreenState extends ConsumerState<AgendarSessaoScreen> {
         modalidade: _modalidade,
       );
       if (!mounted) return;
-      ref.invalidate(minhasSessoesProvider); // a aba "Minhas sessões" recarrega sozinha
+      invalidarDadosDoPaciente(ref); // "Minhas sessões" e o Início recarregam sozinhos
       // id negativo = sem internet: ficou na fila e será enviada sozinha quando a conexão voltar.
       mostrarMensagem(
         context,

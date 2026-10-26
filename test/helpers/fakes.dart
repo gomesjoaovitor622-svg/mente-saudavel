@@ -24,6 +24,24 @@ class FakeSessaoRepository extends Fake implements SessaoRepository {
     return sessoes.where((s) => s.pacienteId == pacienteId && (status == null || s.status == status)).toList();
   }
 
+  // Início do paciente.
+  @override
+  Future<Sessao?> proximaDoPaciente(int pacienteId) async {
+    consultas++;
+    final erro = falhar;
+    if (erro != null) {
+      falhar = null;
+      throw erro;
+    }
+    final futuras = sessoes.where((s) => s.pacienteId == pacienteId && s.status == StatusSessao.agendada).toList()
+      ..sort((a, b) => a.dataHora.compareTo(b.dataHora));
+    return futuras.isEmpty ? null : futuras.first;
+  }
+
+  @override
+  Future<int> concluidasDoPaciente(int pacienteId) async =>
+      sessoes.where((s) => s.pacienteId == pacienteId && s.status == StatusSessao.concluida).length;
+
   // Painel do profissional.
   @override
   Future<int> atendimentosHoje(int profissionalId) async => sessoes.length;

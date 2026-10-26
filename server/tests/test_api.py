@@ -735,3 +735,19 @@ def test_listagem_de_sessoes_respeita_o_limite(client):
         assert client.post("/sessoes", headers=pac["h"], json={"profissional_id": pro["id"], "data_hora": futuro(hora=h), "modalidade": "Online"}).status_code == 201
     assert len(client.get("/sessoes", headers=pac["h"], params={"limite": 2}).json()) == 2
     assert client.get("/sessoes", headers=pac["h"], params={"limite": 0}).status_code == 422
+
+
+def test_historico_financeiro_agrupa_meses_e_bate_com_o_mensal(client):
+    pro = cadastrar(client, "pro-hist@x.com", "profissional")
+    client.patch("/auth/eu", headers=pro["h"], json={"nome": "Dra Hist", "valor_sessao_centavos": 10000})
+    pac = cadastrar(client, "pac-hist@x.com")
+    for h in (9, 10):
+        sid = client.post("/sessoes", headers=pac["h"], json={"profissional_id": pro["id"], "data_hora": futuro(hora=h), "modalidade": "Online"}).json()["id"]
+        if h == 9:
+            client.patch(f"/sessoes/{sid}", headers=pro["h"], json={"status": "concluida"})
+    hist = client.get("/profissional/financeiro/historico", headers=pro["h"], params={"meses": 12}).json()
+    assert len(hist) == 12
+    assert sum(m["sessoes_concluidas"] for m in hist) == 1 and sum(m["sessoes_agendadas"] for m in hist) == 1
+    assert sum(m["recebido_centavos"] for m in hist) == 10000
+    atual = client.get("/profissional/financeiro", headers=pro["h"], params={"mes": hist[0]["mes"]}).json()
+    assert atual["recebido_centavos"] == hist[0]["recebido_centavos"]

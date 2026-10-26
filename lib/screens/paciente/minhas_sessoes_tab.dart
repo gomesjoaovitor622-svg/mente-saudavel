@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:mente_saudavel/models/sessao.dart';
+import 'package:mente_saudavel/presentation/providers/paciente_providers.dart';
 import 'package:mente_saudavel/presentation/providers/sessoes_providers.dart';
 import 'package:mente_saudavel/screens/paciente/agendar_sessao_screen.dart';
 import 'package:mente_saudavel/widgets/componentes.dart';
@@ -30,7 +31,7 @@ class MinhasSessoesTab extends ConsumerWidget {
       return;
     }
     final mudou = await mostrarSessaoSheet(context, sessao: sessao, comoProfissional: false);
-    if (mudou) ref.invalidate(minhasSessoesProvider);
+    if (mudou) invalidarDadosDoPaciente(ref);
   }
 
   @override
