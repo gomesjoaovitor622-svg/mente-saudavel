@@ -524,6 +524,13 @@ def create_app(settings: Settings | None = None, engine: Engine | None = None) -
             raise HTTPException(422, "Escolha um horário no futuro.")
         msg = mensagem_conflito(db, prof.id, user.id, body.data_hora, -1)
         if msg:
+            if chave:
+                # Corrida com o próprio reenvio: o 1º envio acabou de gravar. Não é conflito, é a mesma sessão.
+                db.rollback()
+                existente = db.scalar(select(Sessao).where(Sessao.paciente_id == user.id, Sessao.chave_idempotencia == chave))
+                if existente is not None:
+                    response.status_code = 200
+                    return _sessao_out(existente, ver_anotacoes=False)
             raise HTTPException(409, msg)
         s = Sessao(
             paciente_id=user.id,
