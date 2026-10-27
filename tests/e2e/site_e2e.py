@@ -418,6 +418,116 @@ def fluxo_celular(page: Page) -> None:
     ok("celular: tela de agendamento abre")
 
 
+# ------------------------------------------------------------------ vídeo e prontuário (API + navegador)
+VIDEO_DOMINIO = "video.exemplo.test"  # o mesmo VIDEO_DOMAIN que o workflow grava no .env de teste
+sessao_video: dict[str, int] = {}
+
+
+def entrar_api(email: str, senha: str) -> str:
+    status, dados = api("POST", "/auth/entrar", {"email": email, "senha": senha})
+    assert status == 200 and isinstance(dados, dict), f"login por API de {email}: HTTP {status}"
+    return str(dados["token"])
+
+
+def agora_sp() -> dt.datetime:
+    return dt.datetime.now(ZoneInfo("America/Sao_Paulo")).replace(tzinfo=None, second=0, microsecond=0)
+
+
+def verificar_video_e_prontuario_api() -> None:
+    """Contrato das duas APIs pela pilha real (Caddy -> API -> PostgreSQL), sem navegador."""
+    carlos = entrar_api("carlos@email.com", "123456")
+    helena = entrar_api("helena@mentesaudavel.app", "mente123")
+    status, profs = api("GET", "/profissionais", token=carlos)
+    assert status == 200 and isinstance(profs, list)
+    helena_id = next(p["id"] for p in profs if "Helena" in p["nome"])
+
+    # --- vídeo: sessão online que começa em 10 min (dentro da janela de 15 min antes) ---
+    quando = agora_sp() + dt.timedelta(minutes=10)
+    status, sessao = api("POST", "/sessoes", {"profissional_id": helena_id, "data_hora": quando.isoformat(), "modalidade": "Online"}, carlos)
+    assert status == 201 and isinstance(sessao, dict), f"agendar sessão de vídeo: HTTP {status} {sessao}"
+    sid = int(sessao["id"])
+    sessao_video["id"] = sid
+    sessao_video["dia"] = quando.day
+
+    status, sala = api("GET", f"/sessoes/{sid}/video", token=carlos)
+    assert status == 200 and isinstance(sala, dict), f"sala de vídeo do paciente: HTTP {status} {sala}"
+    assert sala["url"].startswith(f"https://{VIDEO_DOMINIO}/ms-") and "jwt=" in sala["url"], "link de vídeo fora do formato"
+    assert sala["moderador"] is False
+    status, sala_pro = api("GET", f"/sessoes/{sid}/video", token=helena)
+    assert status == 200 and isinstance(sala_pro, dict) and sala_pro["moderador"] is True and sala_pro["sala"] == sala["sala"]
+    ok("API de vídeo: paciente e profissional recebem a mesma sala (profissional é moderador)")
+
+    cadastro = {"nome": "Outro Profissional", "email": f"outro-{int(time.time())}@teste.com", "senha": "senha-forte-1", "perfil": "profissional", "registro": "06/99999"}
+    status, novo = api("POST", "/auth/cadastro", cadastro)
+    assert status == 201 and isinstance(novo, dict)
+    estranho = str(novo["token"])
+    assert api("GET", f"/sessoes/{sid}/video", token=estranho)[0] == 404, "quem não participa da sessão não pode receber a sala"
+    assert api("GET", f"/sessoes/{sid}/video")[0] == 401, "sem login não há sala"
+    ok("API de vídeo: estranho recebe 404 e visitante 401")
+
+    # --- prontuário: só o profissional com vínculo ---
+    status, pacientes = api("GET", "/profissional/pacientes", token=helena)
+    assert status == 200 and isinstance(pacientes, list)
+    carlos_id = next(p["id"] for p in pacientes if "Carlos" in p["nome"])
+    base = f"/profissional/pacientes/{carlos_id}/prontuario"
+    status, e1 = api("POST", base, {"tipo": "evolucao", "conteudo": "Registro E2E: paciente relata melhora do sono."}, helena)
+    assert status == 201 and isinstance(e1, dict) and e1["versao"] == 1, f"criar prontuário: HTTP {status} {e1}"
+    status, e2 = api("PATCH", f"/profissional/prontuario/{e1['id']}", {"conteudo": "Registro E2E (revisado).", "versao_esperada": 1}, helena)
+    assert status == 200 and isinstance(e2, dict) and e2["versao"] == 2
+    assert api("PATCH", f"/profissional/prontuario/{e1['id']}", {"conteudo": "x", "versao_esperada": 1}, helena)[0] == 409, "versão antiga deveria dar conflito"
+    status, revs = api("GET", f"/profissional/prontuario/{e1['id']}/revisoes", token=helena)
+    assert status == 200 and isinstance(revs, list) and revs[0]["conteudo"].startswith("Registro E2E: paciente")
+    status, acessos = api("GET", f"{base}/acessos", token=helena)
+    assert status == 200 and isinstance(acessos, list) and {a["acao"] for a in acessos} >= {"criacao", "edicao"}
+    ok("API de prontuário: criar, editar com versão, conflito 409, revisões e auditoria")
+
+    assert api("GET", base, token=carlos)[0] == 403, "paciente não pode ler prontuário"
+    assert api("GET", base, token=estranho)[0] == 404, "profissional sem vínculo não pode ler prontuário"
+    assert api("GET", base)[0] == 401
+    ok("API de prontuário: paciente 403, profissional sem vínculo 404, visitante 401")
+
+
+def fluxo_video_web(page: Page) -> None:
+    """No site: o profissional abre a sessão online e o botão pede o link ao servidor e o abre numa nova aba."""
+    assert "id" in sessao_video, "a sessão de vídeo deveria ter sido criada na etapa de API"
+    page.context.route(f"**/{VIDEO_DOMINIO}/**", lambda rota: rota.fulfill(status=200, content_type="text/html", body="<html>sala de teste</html>"))
+    entrar(page, "helena@mentesaudavel.app", "mente123", "Painel do Profissional")
+    tocar(page, "Agenda")
+    if sessao_video["dia"] != HOJE().day:
+        tocar(page, "Próximo dia")  # o teste rodou perto da meia-noite
+    page.get_by_role("button", name=re.compile("Carlos")).first.click(timeout=TIMEOUT)
+    ver(page, "Entrar na videochamada")
+    ok("web: sessão online mostra o botão \"Entrar na videochamada\"")
+    with page.context.expect_page(timeout=TIMEOUT) as nova_aba:
+        tocar(page, "Entrar na videochamada")
+    aba = nova_aba.value
+    aba.wait_for_load_state("domcontentloaded", timeout=TIMEOUT)
+    assert VIDEO_DOMINIO in aba.url and "/ms-" in aba.url and "jwt=" in aba.url, f"a aba abriu {aba.url[:80]!r}"
+    ok("web: o botão abre o link com token emitido pelo servidor")
+    aba.close()
+
+
+def fluxo_prontuario_web(page: Page) -> None:
+    """No site: o profissional abre o prontuário de um paciente, cria um registro e o vê na lista."""
+    entrar(page, "helena@mentesaudavel.app", "mente123", "Painel do Profissional")
+    tocar(page, "Pacientes")
+    ver(page, "Buscar paciente")
+    page.get_by_role("button", name=re.compile("Carlos")).first.click(timeout=TIMEOUT)
+    ver(page, "Prontuário")
+    tocar(page, "Prontuário")
+    ver(page, "Só você vê estes registros")
+    ok("web: ícone Prontuário abre a tela com o aviso de sigilo")
+    ver(page, "Registro E2E (revisado)")  # criado pela API na etapa anterior: a tela lista o que o servidor decifrou
+    ok("web: a tela lista o registro cifrado no servidor (versão revisada)")
+    tocar(page, "Novo registro")
+    ver(page, "Registro clínico")
+    digitar(page, "Registro clínico", "Registro pela tela do site.")
+    tocar(page, "Salvar")
+    ver(page, "Registro salvo")
+    ver(page, "Registro pela tela do site.")
+    ok("web: criar registro pela tela grava e aparece na lista")
+
+
 def main() -> int:
     inicio = time.time()
     falhas: list[str] = []
@@ -427,6 +537,11 @@ def main() -> int:
         except (AssertionError, urllib.error.URLError, KeyError, ValueError) as exc:
             print(f"::error title=PWA::{exc}")
             falhas.append("pwa")
+        try:
+            verificar_video_e_prontuario_api()
+        except (AssertionError, urllib.error.URLError, KeyError, StopIteration, ValueError) as exc:
+            print(f"::error title=API vídeo/prontuário::{str(exc).splitlines()[0][:300] if str(exc) else repr(exc)}")
+            falhas.append("api-video-prontuario")
         browser = pw.chromium.launch()
         fluxos = (
             ("paciente", fluxo_paciente, False),
@@ -435,6 +550,8 @@ def main() -> int:
             ("cadastro", fluxo_cadastro_novo, False),
             ("conflito", fluxo_conflito, False),
             ("celular", fluxo_celular, True),
+            ("video-web", fluxo_video_web, False),
+            ("prontuario-web", fluxo_prontuario_web, False),
         )
         for nome, fluxo, celular in fluxos:
             opcoes: dict = {"ignore_https_errors": True, "locale": "pt-BR", "timezone_id": "America/Sao_Paulo"}
