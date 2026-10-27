@@ -17,6 +17,7 @@ Validação: 64 testes no SQLite e 66 no PostgreSQL 16 passando; ruff e mypy `--
 
 ## Encontrado e ainda NÃO corrigido (por prioridade)
 **Alta**
+- Videochamada: o modo servidor usa link da API (docs/VIDEO.md); no modo local o link continua previsível (somente demo). Jitsi real ainda não testado.
 - Limitadores de tentativas ficam em memória do processo: reiniciar o contêiner zera, e mais de um worker multiplica o limite. Para produção real com mais de uma réplica, mover para Redis/PostgreSQL.
 - Textos legais são modelos e precisam de revisão jurídica/DPO; CRP só tem validação de formato; **sem recuperação de senha por e-mail**.
 - Profissional pode marcar uma sessão **futura** como `concluida` (infla o "recebido" do financeiro). Regra de negócio a decidir com você antes de mudar.
