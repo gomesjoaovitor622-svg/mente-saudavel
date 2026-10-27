@@ -489,7 +489,12 @@ def verificar_video_e_prontuario_api() -> None:
 
 def fluxo_video_web(page: Page) -> None:
     """No site: o profissional abre a sessão online e o botão pede o link ao servidor e o abre numa nova aba."""
-    assert "id" in sessao_video, "a sessão de vídeo deveria ter sido criada na etapa de API"
+    # A API é verificada AQUI (e não no início) porque ela cria uma sessão para hoje, e os fluxos
+    # anteriores esperam a agenda de hoje vazia.
+    try:
+        verificar_video_e_prontuario_api()
+    except (KeyError, StopIteration, ValueError, urllib.error.URLError) as exc:
+        raise AssertionError(f"API de vídeo/prontuário: {exc!r}") from exc
     page.context.route(f"**/{VIDEO_DOMINIO}/**", lambda rota: rota.fulfill(status=200, content_type="text/html", body="<html>sala de teste</html>"))
     entrar(page, "helena@mentesaudavel.app", "mente123", "Painel do Profissional")
     tocar(page, "Agenda")
@@ -537,11 +542,6 @@ def main() -> int:
         except (AssertionError, urllib.error.URLError, KeyError, ValueError) as exc:
             print(f"::error title=PWA::{exc}")
             falhas.append("pwa")
-        try:
-            verificar_video_e_prontuario_api()
-        except (AssertionError, urllib.error.URLError, KeyError, StopIteration, ValueError) as exc:
-            print(f"::error title=API vídeo/prontuário::{str(exc).splitlines()[0][:300] if str(exc) else repr(exc)}")
-            falhas.append("api-video-prontuario")
         browser = pw.chromium.launch()
         fluxos = (
             ("paciente", fluxo_paciente, False),
