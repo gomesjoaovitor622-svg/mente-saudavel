@@ -17,7 +17,14 @@ Segurança:
 
 > **Modo local (sem servidor)**: o app ainda mostra "Copiar link da videochamada" com uma sala pública derivada do id da sessão. Isso **não é seguro** (a sala é calculável e o Jitsi público não tem senha). Serve só para demonstração; para atendimento real use o modo servidor.
 
-## Configuração (`deploy/.env`)
+## Onde o recurso aparece (site x APK)
+| Versão | Vídeo e prontuário | Condição |
+|---|---|---|
+| **Site (Flutter web)** | Sim | O site é compilado com `API_URL=/api` (modo servidor). Testado no CI por navegador (botão abre nova aba com o link do servidor; tela de prontuário cria e lista registros) |
+| **APK** | Sim, **se compilado com `API_URL`** | Sem `API_URL` o APK roda em modo LOCAL (SQLite no aparelho): não há prontuário nem link seguro de vídeo. Defina a variável do repositório `API_URL` (Settings → Secrets and variables → Actions → Variables) ou compile com `--dart-define-from-file=env/producao.json` |
+
+No site, o navegador pode bloquear a nova aba (bloqueador de pop-up, principalmente no Safari): nesse caso o link é copiado para a área de transferência.
+
 | Variável | Para que serve |
 |---|---|
 | `VIDEO_DOMAIN` | Domínio do SEU servidor Jitsi, ex.: `video.seudominio.com.br` (vazio = recurso desligado) |
