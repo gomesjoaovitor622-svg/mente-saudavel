@@ -51,6 +51,14 @@ services:
       COOKIE_SECURE: "true"         # cookie de sessão só trafega por HTTPS
       DATABASE_URL: postgresql+psycopg://mente:${POSTGRES_PASSWORD}@db:5432/mente_saudavel
       JWT_SECRET: ${JWT_SECRET:?defina JWT_SECRET no .env (openssl rand -hex 32)}
+      # Chave que cifra os prontuários. GUARDE UMA CÓPIA FORA DO SERVIDOR: sem ela os prontuários não abrem.
+      PRONTUARIO_KEYS: ${PRONTUARIO_KEYS:?defina PRONTUARIO_KEYS no .env (veja .env.example)}
+      # Videochamada (Jitsi com JWT). Vazio = recurso desligado. Veja docs/VIDEO.md.
+      VIDEO_DOMAIN: ${VIDEO_DOMAIN:-}
+      VIDEO_APP_ID: ${VIDEO_APP_ID:-mente-saudavel}
+      VIDEO_APP_SECRET: ${VIDEO_APP_SECRET:-}
+      VIDEO_ANTES_MIN: ${VIDEO_ANTES_MIN:-15}
+      VIDEO_DEPOIS_MIN: ${VIDEO_DEPOIS_MIN:-120}
       CORS_ORIGINS: https://${DOMAIN:?defina DOMAIN no .env}
       DEMO_SEED: ${DEMO_SEED:-false}
       METRICS_TOKEN: ${METRICS_TOKEN:-}

@@ -13,15 +13,18 @@ from typing import Annotated, Any
 from fastapi import Depends, FastAPI, Header, HTTPException, Query, Request, Response
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse, PlainTextResponse
-from sqlalchemy import Engine, case, delete, extract, func, select, update
+from sqlalchemy import Engine, case, delete, exists, extract, func, select, update
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session, sessionmaker
 
+from app import prontuario as prontuario_api
 from app import schemas
+from app import video as video_api
 from app.config import Settings, load_settings
+from app.cripto import CHAVE_DEV, Cofre
 from app.db import Base, garantir_colunas, garantir_indices, make_engine, make_session_factory, session_iter
 from app.migracoes import exigir_banco_migrado
-from app.models import Avaliacao, Humor, Sessao, Usuario
+from app.models import Avaliacao, Humor, ProntuarioEntrada, Sessao, Usuario
 from app.observabilidade import REQUEST_ID_RE, Metricas, configurar_logs, limpar_texto_cliente
 from app.security import HASH_FALSO, criar_token, hash_senha, ler_token_com_versao, verificar_senha
 
@@ -367,6 +370,12 @@ def create_app(settings: Settings | None = None, engine: Engine | None = None) -
 
     @app.delete("/auth/eu", status_code=204)
     def excluir_conta(user: Eu, db: Db) -> Response:
+        if db.scalar(select(exists().where((ProntuarioEntrada.profissional_id == user.id) | (ProntuarioEntrada.paciente_id == user.id)))):
+            raise HTTPException(
+                409,
+                "Esta conta tem prontuário sob guarda legal e não pode ser apagada. Pacientes devem usar a anonimização; "
+                "profissionais devem exportar os dados e falar com o suporte.",
+            )
         db.delete(user)  # cascata no banco (FK ON DELETE CASCADE) via ORM abaixo
         db.commit()
         return Response(status_code=204)
@@ -750,6 +759,10 @@ def create_app(settings: Settings | None = None, engine: Engine | None = None) -
         db.delete(h)
         db.commit()
         return Response(status_code=204)
+
+    cofre = Cofre(cfg.prontuario_chaves or ((CHAVE_DEV,) if cfg.is_dev else ()))
+    prontuario_api.registrar_rotas(app, get_db, usuario_atual, cofre, log)
+    video_api.registrar_rotas(app, cfg, get_db, usuario_atual, log)
 
     if cfg.demo_seed:
         from app.seed import popular_demo

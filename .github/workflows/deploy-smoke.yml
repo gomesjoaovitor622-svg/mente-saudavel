@@ -40,6 +40,7 @@ jobs:
             echo "DOMAIN=localhost"
             echo "POSTGRES_PASSWORD=$(openssl rand -hex 16)"
             echo "JWT_SECRET=$(openssl rand -hex 32)"
+            echo "PRONTUARIO_KEYS=$(python3 -c 'import base64,os;print(base64.urlsafe_b64encode(os.urandom(32)).decode())')"
             echo "DEMO_SEED=true"
           } > .env
 

@@ -93,5 +93,54 @@ ALTER TABLE usuarios ADD COLUMN token_versao INTEGER DEFAULT '0' NOT NULL;
 
 UPDATE alembic_version SET version_num='0002' WHERE alembic_version.version_num = '0001';
 
+-- Running upgrade 0002 -> 0003
+
+CREATE TABLE prontuario_entradas (
+    id SERIAL NOT NULL, 
+    profissional_id INTEGER NOT NULL, 
+    paciente_id INTEGER NOT NULL, 
+    sessao_id INTEGER, 
+    tipo VARCHAR(20) NOT NULL, 
+    conteudo_cifrado TEXT NOT NULL, 
+    versao INTEGER NOT NULL, 
+    criado_em TIMESTAMP WITHOUT TIME ZONE NOT NULL, 
+    atualizado_em TIMESTAMP WITHOUT TIME ZONE NOT NULL, 
+    PRIMARY KEY (id), 
+    CONSTRAINT ck_prontuario_tipo CHECK (tipo IN ('evolucao','anamnese','plano','observacao')), 
+    FOREIGN KEY(profissional_id) REFERENCES usuarios (id) ON DELETE RESTRICT, 
+    FOREIGN KEY(paciente_id) REFERENCES usuarios (id) ON DELETE RESTRICT, 
+    FOREIGN KEY(sessao_id) REFERENCES sessoes (id) ON DELETE SET NULL
+);
+
+CREATE INDEX idx_prontuario_prof_pac ON prontuario_entradas (profissional_id, paciente_id, criado_em);
+
+CREATE TABLE prontuario_revisoes (
+    id SERIAL NOT NULL, 
+    entrada_id INTEGER NOT NULL, 
+    versao INTEGER NOT NULL, 
+    conteudo_cifrado TEXT NOT NULL, 
+    substituida_em TIMESTAMP WITHOUT TIME ZONE NOT NULL, 
+    PRIMARY KEY (id), 
+    CONSTRAINT uq_prontuario_revisao UNIQUE (entrada_id, versao), 
+    FOREIGN KEY(entrada_id) REFERENCES prontuario_entradas (id) ON DELETE CASCADE
+);
+
+CREATE TABLE prontuario_acessos (
+    id SERIAL NOT NULL, 
+    profissional_id INTEGER NOT NULL, 
+    paciente_id INTEGER NOT NULL, 
+    entrada_id INTEGER, 
+    acao VARCHAR(20) NOT NULL, 
+    em TIMESTAMP WITHOUT TIME ZONE NOT NULL, 
+    request_id VARCHAR(32), 
+    PRIMARY KEY (id), 
+    FOREIGN KEY(profissional_id) REFERENCES usuarios (id) ON DELETE RESTRICT, 
+    FOREIGN KEY(paciente_id) REFERENCES usuarios (id) ON DELETE RESTRICT
+);
+
+CREATE INDEX idx_prontuario_acessos ON prontuario_acessos (paciente_id, em);
+
+UPDATE alembic_version SET version_num='0003' WHERE alembic_version.version_num = '0002';
+
 COMMIT;
 

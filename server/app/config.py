@@ -30,6 +30,14 @@ class Settings:
     # "auto": cria/ajusta tabelas ao subir (desenvolvimento e testes). "alembic": o esquema só muda por migrações
     # versionadas (`alembic upgrade head`); a API recusa subir se o banco não estiver na versão esperada.
     schema_mode: str = "auto"
+    # Chaves Fernet (separadas por vírgula) que cifram o prontuário. A PRIMEIRA cifra; todas decifram (rotação de chaves).
+    prontuario_chaves: tuple[str, ...] = field(default_factory=tuple)
+    # Videochamada (Jitsi com JWT). Sem VIDEO_DOMAIN o recurso fica desligado (503).
+    video_domain: str = ""
+    video_app_id: str = ""
+    video_app_secret: str = ""
+    video_antes_min: int = 15  # a sala abre tantos minutos antes do horário
+    video_depois_min: int = 120  # e fecha tantos minutos depois do horário
 
     @property
     def is_dev(self) -> bool:
@@ -65,6 +73,13 @@ def load_settings() -> Settings:
     schema_mode = os.environ.get("SCHEMA_MODE", "auto").strip().lower()
     if schema_mode not in {"auto", "alembic"}:
         raise RuntimeError("SCHEMA_MODE deve ser 'auto' ou 'alembic'.")
+    chaves = tuple(k.strip() for k in os.environ.get("PRONTUARIO_KEYS", "").split(",") if k.strip())
+    if not chaves and env != "development":
+        raise RuntimeError(
+            'PRONTUARIO_KEYS ausente. Gere uma chave com: python -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())" '
+            "e guarde-a em local seguro (sem ela os prontuários não podem ser lidos)."
+        )
+    video_domain = os.environ.get("VIDEO_DOMAIN", "").strip().lower().removeprefix("https://").strip("/")
     return Settings(
         env=env,
         database_url=db_url,
@@ -79,4 +94,10 @@ def load_settings() -> Settings:
         log_level=os.environ.get("LOG_LEVEL", "INFO"),
         cookie_secure=_bool("COOKIE_SECURE", env != "development"),
         schema_mode=schema_mode,
+        prontuario_chaves=chaves,
+        video_domain=video_domain,
+        video_app_id=os.environ.get("VIDEO_APP_ID", "mente-saudavel"),
+        video_app_secret=os.environ.get("VIDEO_APP_SECRET", ""),
+        video_antes_min=int(os.environ.get("VIDEO_ANTES_MIN", "15")),
+        video_depois_min=int(os.environ.get("VIDEO_DEPOIS_MIN", "120")),
     )
