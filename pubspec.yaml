@@ -18,6 +18,7 @@ dependencies:
   flutter_riverpod: ^2.6.1         # estado da interface (migração gradual, tela a tela)
   flutter_secure_storage: ^9.2.4   # token de login no Keystore/Keychain (celular)
   shared_preferences: ^2.3.2       # só para apagar o token antigo em texto puro (migração)
+  url_launcher: ^6.3.1             # abre a videochamada (link do servidor) no navegador do aparelho
 
 dev_dependencies:
   flutter_test:
