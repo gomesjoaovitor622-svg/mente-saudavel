@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import os
 from dataclasses import dataclass, field
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 _INSECURE_DEV_SECRET = "dev-only-secret-change-me-0123456789abcdef"  # pragma: allowlist secret
 
@@ -38,6 +39,21 @@ class Settings:
     video_app_secret: str = ""
     video_antes_min: int = 15  # a sala abre tantos minutos antes do horário
     video_depois_min: int = 120  # e fecha tantos minutos depois do horário
+
+    # Fuso da clínica: todos os horários do sistema são "horário de parede" nele (veja app/tempo.py).
+    app_tz: str = "America/Sao_Paulo"
+    # E-mail (SMTP). Sem SMTP_HOST e SMTP_FROM o envio fica desligado: sem recuperação de senha nem verificação de e-mail.
+    smtp_host: str = ""
+    smtp_port: int = 587
+    smtp_user: str = ""
+    smtp_password: str = ""
+    smtp_from: str = ""
+    smtp_seguranca: str = "starttls"  # starttls | ssl | none
+    codigo_validade_min: int = 15  # validade dos códigos de 6 dígitos enviados por e-mail
+
+    @property
+    def email_ativo(self) -> bool:
+        return bool(self.smtp_host and self.smtp_from)
 
     @property
     def is_dev(self) -> bool:
@@ -79,6 +95,14 @@ def load_settings() -> Settings:
             'PRONTUARIO_KEYS ausente. Gere uma chave com: python -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())" '
             "e guarde-a em local seguro (sem ela os prontuários não podem ser lidos)."
         )
+    app_tz = os.environ.get("APP_TZ", "America/Sao_Paulo").strip()
+    try:
+        ZoneInfo(app_tz)
+    except (ZoneInfoNotFoundError, ValueError):
+        raise RuntimeError(f"APP_TZ inválido: {app_tz!r} (ex.: America/Sao_Paulo).") from None
+    smtp_seguranca = os.environ.get("SMTP_SECURITY", "starttls").strip().lower()
+    if smtp_seguranca not in {"starttls", "ssl", "none"}:
+        raise RuntimeError("SMTP_SECURITY deve ser starttls, ssl ou none.")
     video_domain = os.environ.get("VIDEO_DOMAIN", "").strip().lower().removeprefix("https://").strip("/")
     return Settings(
         env=env,
@@ -100,4 +124,12 @@ def load_settings() -> Settings:
         video_app_secret=os.environ.get("VIDEO_APP_SECRET", ""),
         video_antes_min=int(os.environ.get("VIDEO_ANTES_MIN", "15")),
         video_depois_min=int(os.environ.get("VIDEO_DEPOIS_MIN", "120")),
+        app_tz=app_tz,
+        smtp_host=os.environ.get("SMTP_HOST", "").strip(),
+        smtp_port=int(os.environ.get("SMTP_PORT", "587")),
+        smtp_user=os.environ.get("SMTP_USER", "").strip(),
+        smtp_password=os.environ.get("SMTP_PASSWORD", ""),
+        smtp_from=os.environ.get("SMTP_FROM", "").strip(),
+        smtp_seguranca=smtp_seguranca,
+        codigo_validade_min=int(os.environ.get("CODIGO_VALIDADE_MIN", "15")),
     )

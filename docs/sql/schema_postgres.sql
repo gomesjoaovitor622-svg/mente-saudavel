@@ -142,5 +142,33 @@ CREATE INDEX idx_prontuario_acessos ON prontuario_acessos (paciente_id, em);
 
 UPDATE alembic_version SET version_num='0003' WHERE alembic_version.version_num = '0002';
 
+-- Running upgrade 0003 -> 0004
+
+ALTER TABLE usuarios ADD COLUMN verificado_em TIMESTAMP WITHOUT TIME ZONE;
+
+ALTER TABLE usuarios ADD COLUMN email_verificado_em TIMESTAMP WITHOUT TIME ZONE;
+
+UPDATE usuarios SET verificado_em = CURRENT_TIMESTAMP WHERE perfil = 'profissional';
+
+UPDATE usuarios SET email_verificado_em = CURRENT_TIMESTAMP;
+
+CREATE TABLE codigos_email (
+    id SERIAL NOT NULL, 
+    usuario_id INTEGER NOT NULL, 
+    finalidade VARCHAR(20) NOT NULL, 
+    codigo_hash VARCHAR(64) NOT NULL, 
+    expira_em TIMESTAMP WITHOUT TIME ZONE NOT NULL, 
+    tentativas INTEGER DEFAULT '0' NOT NULL, 
+    usado_em TIMESTAMP WITHOUT TIME ZONE, 
+    criado_em TIMESTAMP WITHOUT TIME ZONE NOT NULL, 
+    PRIMARY KEY (id), 
+    CONSTRAINT ck_codigo_finalidade CHECK (finalidade IN ('verificar_email','redefinir_senha')), 
+    FOREIGN KEY(usuario_id) REFERENCES usuarios (id) ON DELETE CASCADE
+);
+
+CREATE INDEX idx_codigos_usuario ON codigos_email (usuario_id, finalidade);
+
+UPDATE alembic_version SET version_num='0004' WHERE alembic_version.version_num = '0003';
+
 COMMIT;
 

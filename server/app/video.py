@@ -12,7 +12,7 @@ import hmac
 import logging
 import time
 from collections.abc import Callable
-from datetime import datetime, timedelta
+from datetime import timedelta
 from typing import Annotated, Any
 from urllib.parse import quote
 
@@ -20,6 +20,7 @@ import jwt
 from fastapi import Depends, FastAPI, HTTPException
 from sqlalchemy.orm import Session
 
+from app import tempo
 from app.config import Settings
 from app.models import Sessao, Usuario
 
@@ -60,7 +61,7 @@ def registrar_rotas(app: FastAPI, cfg: Settings, get_db: Callable[..., Any], usu
             raise HTTPException(409, "Esta sessão é presencial.")
         if s.status != "agendada":
             raise HTTPException(409, "Esta sessão foi cancelada ou já foi encerrada.")
-        agora = datetime.now()
+        agora = tempo.agora()
         abre, fecha = s.data_hora - timedelta(minutes=cfg.video_antes_min), s.data_hora + timedelta(minutes=cfg.video_depois_min)
         if agora < abre:
             raise HTTPException(409, f"A sala abre às {abre:%H:%M} de {abre:%d/%m}.")
@@ -74,4 +75,4 @@ def registrar_rotas(app: FastAPI, cfg: Settings, get_db: Callable[..., Any], usu
             nome = user.nome if moderador else user.nome.split()[0]  # minimização: o paciente aparece só pelo primeiro nome
             url += f"?jwt={quote(token_jitsi(cfg, sala, nome, moderador, expira_em))}"
         log.info("video_acesso", extra={"campos": {"sessao_id": s.id, "usuario_id": user.id}})  # sem URL/token no log
-        return {"url": url, "sala": sala, "moderador": moderador, "expira_em": datetime.fromtimestamp(expira_em).replace(microsecond=0).isoformat()}
+        return {"url": url, "sala": sala, "moderador": moderador, "expira_em": fecha.replace(microsecond=0).isoformat()}

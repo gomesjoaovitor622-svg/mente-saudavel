@@ -7,6 +7,7 @@ from datetime import datetime, timedelta
 import pytest
 from fastapi.testclient import TestClient
 
+from app import tempo
 from tests.conftest import cadastrar, futuro
 
 
@@ -111,7 +112,7 @@ def test_regras_de_perfil_e_status(client):
     assert client.get("/profissional/pacientes", headers=pac["h"]).status_code == 403
     assert client.post("/humor", headers=pro["h"], json={"nivel": 3}).status_code == 403
     assert client.post("/sessoes", headers=pac["h"], json={"profissional_id": pac["id"], "data_hora": futuro(), "modalidade": "Online"}).status_code == 404
-    passado = (datetime.now() - timedelta(days=1)).isoformat()
+    passado = (tempo.agora() - timedelta(days=1)).isoformat()
     assert client.post("/sessoes", headers=pac["h"], json={"profissional_id": pro["id"], "data_hora": passado, "modalidade": "Online"}).status_code == 422
     sid = client.post("/sessoes", headers=pac["h"], json={"profissional_id": pro["id"], "data_hora": futuro(), "modalidade": "Online"}).json()["id"]
     assert client.patch(f"/sessoes/{sid}", headers=pac["h"], json={"status": "concluida"}).status_code == 409  # paciente não conclui
@@ -264,8 +265,10 @@ def test_migracao_adiciona_colunas_em_banco_antigo(tmp_path):
         "usuarios.aceite_termos_em",
         "usuarios.aceite_termos_versao",
         "usuarios.anonimizado_em",
+        "usuarios.email_verificado_em",
         "usuarios.token_versao",
         "usuarios.valor_sessao_centavos",
+        "usuarios.verificado_em",
     ]
     assert garantir_colunas(engine) == []  # idempotente
     colunas = {c["name"] for c in inspect(engine).get_columns("sessoes")}

@@ -17,6 +17,7 @@ from pydantic import Field
 from sqlalchemy import exists, select
 from sqlalchemy.orm import Session
 
+from app import tempo
 from app.cripto import Cofre, ProntuarioIlegivel
 from app.models import ProntuarioAcesso, ProntuarioEntrada, ProntuarioRevisao, Sessao, Usuario
 from app.schemas import _Base
@@ -36,7 +37,7 @@ class EntradaPatch(_Base):
 
 
 def _agora() -> datetime:
-    return datetime.now().replace(microsecond=0)
+    return tempo.agora().replace(microsecond=0)
 
 
 def registrar_rotas(app: FastAPI, get_db: Callable[..., Any], usuario_atual: Callable[..., Usuario], cofre: Cofre, log: logging.Logger) -> None:

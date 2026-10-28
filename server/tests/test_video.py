@@ -2,8 +2,9 @@
 
 from __future__ import annotations
 
+import time
 from collections.abc import Iterator
-from datetime import datetime, timedelta
+from datetime import timedelta
 from urllib.parse import parse_qs, urlparse
 
 import jwt
@@ -13,6 +14,7 @@ from sqlalchemy import create_engine, event
 from sqlalchemy.pool import StaticPool
 
 import app.video as video_mod
+from app import tempo
 from app.config import Settings
 from app.main import create_app
 from tests.conftest import cadastrar
@@ -46,7 +48,7 @@ def client_sem_video() -> Iterator[TestClient]:
 def _sessao(client: TestClient, minutos: int = 10, modalidade: str = "Online") -> tuple[dict, dict, int]:
     pro = cadastrar(client, "pro-video@x.com", "profissional")
     pac = cadastrar(client, "pac-video@x.com")
-    quando = (datetime.now() + timedelta(minutes=minutos)).replace(microsecond=0).isoformat()
+    quando = (tempo.agora() + timedelta(minutes=minutos)).replace(microsecond=0).isoformat()
     r = client.post("/sessoes", headers=pac["h"], json={"profissional_id": pro["id"], "data_hora": quando, "modalidade": modalidade})
     assert r.status_code == 201, r.text
     return pro, pac, r.json()["id"]
@@ -74,13 +76,13 @@ def test_os_dois_entram_na_mesma_sala_com_papeis_diferentes(client):
 def test_token_expira_no_fim_da_janela(client):
     pro, _, sid = _sessao(client, minutos=10)
     exp = _claims(client.get(f"/sessoes/{sid}/video", headers=pro["h"]).json()["url"])["exp"]
-    esperado = (datetime.now() + timedelta(minutes=10 + 120)).timestamp()
+    esperado = time.time() + (10 + 120) * 60
     assert abs(exp - esperado) < 90
 
 
 def test_salas_de_sessoes_diferentes_sao_diferentes_e_imprevisiveis(client):
     pro, pac, sid = _sessao(client)
-    quando = (datetime.now() + timedelta(minutes=300)).replace(microsecond=0).isoformat()
+    quando = (tempo.agora() + timedelta(minutes=300)).replace(microsecond=0).isoformat()
     sid2 = client.post("/sessoes", headers=pac["h"], json={"profissional_id": pro["id"], "data_hora": quando, "modalidade": "Online"}).json()["id"]
     s1 = client.get(f"/sessoes/{sid}/video", headers=pro["h"]).json()["sala"]
     assert s1 == client.get(f"/sessoes/{sid}/video", headers=pro["h"]).json()["sala"]  # estável
@@ -102,14 +104,14 @@ def test_sessao_presencial_cancelada_e_fora_da_janela_sao_recusadas(client):
     pro, pac, sid = _sessao(client, minutos=10, modalidade="Presencial")
     assert client.get(f"/sessoes/{sid}/video", headers=pro["h"]).status_code == 409
     pro2 = cadastrar(client, "pro2@x.com", "profissional")
-    quando = (datetime.now() + timedelta(minutes=12)).replace(microsecond=0).isoformat()  # outro horário: o paciente não pode ter dois no mesmo
+    quando = (tempo.agora() + timedelta(minutes=12)).replace(microsecond=0).isoformat()  # outro horário: o paciente não pode ter dois no mesmo
     sid2 = client.post("/sessoes", headers=pac["h"], json={"profissional_id": pro2["id"], "data_hora": quando, "modalidade": "Online"}).json()["id"]
     assert client.get(f"/sessoes/{sid2}/video", headers=pac["h"]).status_code == 200
     client.patch(f"/sessoes/{sid2}", headers=pac["h"], json={"status": "cancelada"})
     assert client.get(f"/sessoes/{sid2}/video", headers=pac["h"]).status_code == 409
     # cedo demais: sessão daqui a 3 horas (a janela abre 15 min antes)
     pro3 = cadastrar(client, "pro3@x.com", "profissional")
-    longe = (datetime.now() + timedelta(hours=3)).replace(microsecond=0).isoformat()
+    longe = (tempo.agora() + timedelta(hours=3)).replace(microsecond=0).isoformat()
     sid3 = client.post("/sessoes", headers=pac["h"], json={"profissional_id": pro3["id"], "data_hora": longe, "modalidade": "Online"}).json()["id"]
     r = client.get(f"/sessoes/{sid3}/video", headers=pac["h"])
     assert r.status_code == 409 and "abre às" in r.json()["detail"]
@@ -118,12 +120,8 @@ def test_sessao_presencial_cancelada_e_fora_da_janela_sao_recusadas(client):
 def test_depois_da_janela_a_sala_fecha(client, monkeypatch):
     pro, _, sid = _sessao(client, minutos=10)
 
-    class Depois(datetime):
-        @classmethod
-        def now(cls, tz=None):  # type: ignore[no-untyped-def]
-            return datetime.now() + timedelta(minutes=10 + 121)
-
-    monkeypatch.setattr(video_mod, "datetime", Depois)
+    real = tempo.agora
+    monkeypatch.setattr(video_mod.tempo, "agora", lambda: real() + timedelta(minutes=10 + 121))
     r = client.get(f"/sessoes/{sid}/video", headers=pro["h"])
     assert r.status_code == 409 and "já passou" in r.json()["detail"]
 

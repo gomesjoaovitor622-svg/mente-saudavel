@@ -5,11 +5,12 @@ from datetime import datetime
 from sqlalchemy import CheckConstraint, DateTime, ForeignKey, Index, Integer, String, Text, UniqueConstraint, text
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
+from app import tempo
 from app.db import Base
 
 
 def _now() -> datetime:
-    return datetime.now().replace(microsecond=0)
+    return tempo.agora().replace(microsecond=0)
 
 
 class Usuario(Base):
@@ -32,6 +33,11 @@ class Usuario(Base):
     anonimizado_em: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
     # Sobe quando a senha muda: os tokens emitidos antes deixam de valer (roubo de token, aparelho perdido).
     token_versao: Mapped[int] = mapped_column(Integer, nullable=False, server_default="0", default=0)
+    # Profissional só aparece na busca e recebe agendamentos depois de APROVADO por um administrador
+    # (conferência do CRP): `python -m app.admin aprovar EMAIL`. Pacientes não usam este campo.
+    verificado_em: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    # Quando a pessoa provou ser dona do e-mail (código enviado por e-mail).
+    email_verificado_em: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
 
 
 # Índice único PARCIAL: só vale para sessões não canceladas (cancelar libera o horário).
@@ -150,3 +156,22 @@ class ProntuarioAcesso(Base):
     acao: Mapped[str] = mapped_column(String(20), nullable=False)
     em: Mapped[datetime] = mapped_column(DateTime, nullable=False)
     request_id: Mapped[str | None] = mapped_column(String(32), nullable=True)
+
+
+class CodigoEmail(Base):
+    """Código de 6 dígitos enviado por e-mail (confirmar e-mail ou redefinir senha). Só o HMAC do código é guardado."""
+
+    __tablename__ = "codigos_email"
+    __table_args__ = (
+        CheckConstraint("finalidade IN ('verificar_email','redefinir_senha')", name="ck_codigo_finalidade"),
+        Index("idx_codigos_usuario", "usuario_id", "finalidade"),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    usuario_id: Mapped[int] = mapped_column(ForeignKey("usuarios.id", ondelete="CASCADE"))
+    finalidade: Mapped[str] = mapped_column(String(20))
+    codigo_hash: Mapped[str] = mapped_column(String(64))
+    expira_em: Mapped[datetime] = mapped_column(DateTime)
+    tentativas: Mapped[int] = mapped_column(Integer, nullable=False, server_default="0", default=0)
+    usado_em: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    criado_em: Mapped[datetime] = mapped_column(DateTime, default=_now)
