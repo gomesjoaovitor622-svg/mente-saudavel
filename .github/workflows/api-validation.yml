@@ -125,7 +125,7 @@ jobs:
 
       - name: Enviar relatórios
         if: ${{ !cancelled() }}
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: reports-quality
           path: |
@@ -234,7 +234,7 @@ jobs:
 
       - name: Enviar relatórios (sempre, retenção curta)
         if: ${{ always() }}
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: reports-reference-py${{ matrix.python-version }}
           path: |
@@ -246,7 +246,7 @@ jobs:
 
       - name: Enviar logs brutos (somente em falha, retenção maior)
         if: ${{ failure() }}
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: failure-dumps-reference-py${{ matrix.python-version }}
           path: ci/api-validation/reports/*.log
@@ -317,7 +317,7 @@ jobs:
 
       - name: Enviar relatórios
         if: ${{ always() }}
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: reports-live
           path: |
@@ -329,7 +329,7 @@ jobs:
 
       - name: Enviar logs brutos (somente em falha)
         if: ${{ failure() }}
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: failure-dumps-live
           path: ci/api-validation/reports/*.log
@@ -401,7 +401,7 @@ jobs:
           python -m apival.executive --diagnosis 'relatorios/**/diagnosis.json' --out-dir reports/executive
 
       - name: Enviar relatório executivo (retenção de 90 dias para auditoria)
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: executive-report
           path: ci/api-validation/reports/executive/
