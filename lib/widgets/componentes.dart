@@ -178,7 +178,9 @@ class SessaoCard extends StatelessWidget {
         ),
         title: Text(nome, style: const TextStyle(fontWeight: FontWeight.w600)),
         subtitle: Text(quando),
-        trailing: futura ? const Icon(Icons.chevron_right) : StatusChip(sessao: sessao),
+        trailing: sessao.pendente
+            ? const Chip(label: Text('Aguardando envio'), visualDensity: VisualDensity.compact)
+            : (futura ? const Icon(Icons.chevron_right) : StatusChip(sessao: sessao)),
         onTap: onTap,
       ),
     );

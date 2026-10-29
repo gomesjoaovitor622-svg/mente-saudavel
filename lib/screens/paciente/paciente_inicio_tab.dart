@@ -1,11 +1,13 @@
 import 'package:flutter/material.dart';
-import 'package:mente_saudavel/database/sessao_dao.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:mente_saudavel/models/sessao.dart';
-import 'package:mente_saudavel/models/usuario.dart';
+import 'package:mente_saudavel/presentation/providers/paciente_providers.dart';
+import 'package:mente_saudavel/presentation/providers/sessoes_providers.dart';
 import 'package:mente_saudavel/screens/paciente/agendar_sessao_screen.dart';
-import 'package:mente_saudavel/services/auth_service.dart';
 import 'package:mente_saudavel/utils/formatters.dart';
+import 'package:mente_saudavel/widgets/avisos_conta.dart';
 import 'package:mente_saudavel/widgets/componentes.dart';
+import 'package:mente_saudavel/widgets/medir_tela.dart';
 import 'package:mente_saudavel/widgets/sessao_sheet.dart';
 
 const List<String> _frases = [
@@ -18,66 +20,26 @@ const List<String> _frases = [
   'Seu bem-estar importa, hoje e sempre.',
 ];
 
-class PacienteInicioTab extends StatefulWidget {
+/// Início do paciente. A tela só observa [inicioPacienteProvider] (carregando, erro e dados).
+class PacienteInicioTab extends ConsumerWidget {
   final VoidCallback onVerSessoes;
 
   const PacienteInicioTab({super.key, required this.onVerSessoes});
 
-  @override
-  State<PacienteInicioTab> createState() => _PacienteInicioTabState();
-}
-
-class _PacienteInicioTabState extends State<PacienteInicioTab> {
-  final SessaoDao _dao = SessaoDao();
-
-  Sessao? _proxima;
-  int _concluidas = 0;
-  bool _carregando = true;
-  String? _erro;
-
-  Usuario get _usuario => AuthService.atual.value!;
-
-  @override
-  void initState() {
-    super.initState();
-    _carregar();
-  }
-
-  Future<void> _carregar() async {
-    try {
-      final proxima = await _dao.proximaDoPaciente(_usuario.id!);
-      final concluidas = await _dao.concluidasDoPaciente(_usuario.id!);
-      if (!mounted) return;
-      setState(() {
-        _proxima = proxima;
-        _concluidas = concluidas;
-        _carregando = false;
-        _erro = null;
-      });
-    } catch (_) {
-      if (!mounted) return;
-      setState(() {
-        _carregando = false;
-        _erro = 'Erro ao carregar seus dados.';
-      });
-    }
-  }
-
-  Future<void> _agendar() async {
+  Future<void> _agendar(BuildContext context, WidgetRef ref) async {
     final agendou = await Navigator.push<bool>(
       context,
       MaterialPageRoute(builder: (_) => const AgendarSessaoScreen()),
     );
-    if (agendou == true) _carregar();
+    if (agendou == true) invalidarDadosDoPaciente(ref);
   }
 
-  Future<void> _abrirProxima(Sessao sessao) async {
+  Future<void> _abrirProxima(BuildContext context, WidgetRef ref, Sessao sessao) async {
     final mudou = await mostrarSessaoSheet(context, sessao: sessao, comoProfissional: false);
-    if (mudou) _carregar();
+    if (mudou) invalidarDadosDoPaciente(ref);
   }
 
-  Widget _cartaoProxima() {
-    final s = _proxima;
+  Widget _cartaoProxima(BuildContext context, WidgetRef ref, Sessao? s) {
     if (s == null) {
       return Card(
         child: Padding(
@@ -86,7 +48,7 @@ class _PacienteInicioTabState extends State<PacienteInicioTab> {
             children: [
               const Text('Você não tem sessões agendadas.'),
               const SizedBox(height: 10),
-              FilledButton(onPressed: _agendar, child: const Text('Agendar agora')),
+              FilledButton(onPressed: () => _agendar(context, ref), child: const Text('Agendar agora')),
             ],
           ),
         ),
@@ -96,7 +58,7 @@ class _PacienteInicioTabState extends State<PacienteInicioTab> {
     final registro = s.profissionalRegistro ?? '';
     return Card(
       child: InkWell(
-        onTap: () => _abrirProxima(s),
+        onTap: () => _abrirProxima(context, ref, s),
         borderRadius: BorderRadius.circular(12),
         child: Padding(
           padding: const EdgeInsets.all(16),
@@ -157,79 +119,100 @@ class _PacienteInicioTabState extends State<PacienteInicioTab> {
   }
 
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context, WidgetRef ref) {
+    final usuario = ref.watch(usuarioAtualProvider);
+    final inicio = ref.watch(inicioPacienteProvider);
     final agora = DateTime.now();
     final diaDoAno = diasEntre(DateTime(agora.year, 1, 1), agora);
     final frase = _frases[diaDoAno % _frases.length];
-    final dias = _proxima == null ? '-' : '${diasEntre(agora, _proxima!.dataHora)}';
 
-    return Scaffold(
-      body: SafeArea(
-        child: RefreshIndicator(
-          onRefresh: _carregar,
-          child: ListView(
-            physics: const AlwaysScrollableScrollPhysics(),
-            padding: const EdgeInsets.all(20),
-            children: [
-              Text(
-                'Olá, ${primeiroNome(_usuario.nome)}!',
-                style: const TextStyle(fontSize: 22, fontWeight: FontWeight.bold),
-              ),
-              const SizedBox(height: 16),
-              if (_carregando)
-                const Center(
-                  child: Padding(padding: EdgeInsets.all(32), child: CircularProgressIndicator()),
-                )
-              else if (_erro != null)
-                Text(_erro!, style: TextStyle(color: Colors.red.shade700))
-              else ...[
-                _cartaoProxima(),
-                const SizedBox(height: 12),
-                Row(
-                  children: [
-                    Expanded(child: StatCard(valor: '$_concluidas', rotulo: 'sessões concluídas')),
-                    const SizedBox(width: 12),
-                    Expanded(child: StatCard(valor: dias, rotulo: 'dias até a próxima')),
-                  ],
+    return MedirTela(
+      nome: 'paciente_inicio',
+      child: Scaffold(
+        body: SafeArea(
+          child: RefreshIndicator(
+            onRefresh: () => ref.read(inicioPacienteProvider.notifier).recarregar(),
+            child: ListView(
+              physics: const AlwaysScrollableScrollPhysics(),
+              padding: const EdgeInsets.all(20),
+              children: [
+                Text(
+                  'Olá, ${primeiroNome(usuario?.nome ?? '')}!',
+                  style: const TextStyle(fontSize: 22, fontWeight: FontWeight.bold),
                 ),
-                const SizedBox(height: 20),
-                const Text('Ações rápidas', style: TextStyle(fontWeight: FontWeight.w600)),
-                const SizedBox(height: 8),
-                Row(
-                  children: [
-                    Expanded(
-                      child: OutlinedButton.icon(
-                        onPressed: _agendar,
-                        icon: const Icon(Icons.calendar_month),
-                        label: const Text('Agendar sessão'),
-                      ),
-                    ),
-                    const SizedBox(width: 12),
-                    Expanded(
-                      child: OutlinedButton.icon(
-                        onPressed: widget.onVerSessoes,
-                        icon: const Icon(Icons.history),
-                        label: const Text('Minhas sessões'),
+                const SizedBox(height: 16),
+                AvisosConta(usuario: usuario),
+                ...inicio.when(
+                  skipLoadingOnReload: false,
+                  loading: () => const [
+                    Center(child: Padding(padding: EdgeInsets.all(32), child: CircularProgressIndicator())),
+                  ],
+                  error: (_, __) => [
+                    Text('Erro ao carregar seus dados.', style: TextStyle(color: Colors.red.shade700)),
+                    const SizedBox(height: 12),
+                    Align(
+                      alignment: Alignment.centerLeft,
+                      child: FilledButton(
+                        onPressed: () => ref.invalidate(inicioPacienteProvider),
+                        child: const Text('Tentar novamente'),
                       ),
                     ),
                   ],
-                ),
-                const SizedBox(height: 20),
-                Card(
-                  color: Colors.green.shade50,
-                  child: Padding(
-                    padding: const EdgeInsets.all(16),
-                    child: Row(
+                  data: (d) => [
+                    _cartaoProxima(context, ref, d.proxima),
+                    const SizedBox(height: 12),
+                    Row(
                       children: [
-                        const Icon(Icons.format_quote, color: verdeMarca),
-                        const SizedBox(width: 10),
-                        Expanded(child: Text(frase, style: const TextStyle(fontStyle: FontStyle.italic))),
+                        Expanded(child: StatCard(valor: '${d.concluidas}', rotulo: 'sessões concluídas')),
+                        const SizedBox(width: 12),
+                        Expanded(
+                          child: StatCard(
+                            valor: d.proxima == null ? '-' : '${diasEntre(agora, d.proxima!.dataHora)}',
+                            rotulo: 'dias até a próxima',
+                          ),
+                        ),
                       ],
                     ),
-                  ),
+                    const SizedBox(height: 20),
+                    const Text('Ações rápidas', style: TextStyle(fontWeight: FontWeight.w600)),
+                    const SizedBox(height: 8),
+                    Row(
+                      children: [
+                        Expanded(
+                          child: OutlinedButton.icon(
+                            onPressed: () => _agendar(context, ref),
+                            icon: const Icon(Icons.calendar_month),
+                            label: const Text('Agendar sessão'),
+                          ),
+                        ),
+                        const SizedBox(width: 12),
+                        Expanded(
+                          child: OutlinedButton.icon(
+                            onPressed: onVerSessoes,
+                            icon: const Icon(Icons.history),
+                            label: const Text('Minhas sessões'),
+                          ),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 20),
+                    Card(
+                      color: Colors.green.shade50,
+                      child: Padding(
+                        padding: const EdgeInsets.all(16),
+                        child: Row(
+                          children: [
+                            const Icon(Icons.format_quote, color: verdeMarca),
+                            const SizedBox(width: 10),
+                            Expanded(child: Text(frase, style: const TextStyle(fontStyle: FontStyle.italic))),
+                          ],
+                        ),
+                      ),
+                    ),
+                  ],
                 ),
               ],
-            ],
+            ),
           ),
         ),
       ),

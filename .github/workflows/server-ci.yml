@@ -84,6 +84,7 @@ jobs:
           secret="$(openssl rand -hex 32)"
           docker run -d --name api -p 8000:8000 \
             -e APP_ENV=production -e JWT_SECRET="$secret" \
+            -e PRONTUARIO_KEYS="$(python3 -c 'import base64,os;print(base64.urlsafe_b64encode(os.urandom(32)).decode())')" \
             -e DATABASE_URL=sqlite:////tmp/ci.db -e DEMO_SEED=true \
             --read-only --tmpfs /tmp mente-saudavel-api:ci
           for _ in $(seq 1 30); do

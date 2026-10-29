@@ -4,9 +4,12 @@ FROM ghcr.io/cirruslabs/flutter:stable AS build
 WORKDIR /app
 COPY pubspec.yaml ./
 COPY lib ./lib
+COPY web_overrides ./web_overrides
+COPY tools/personalizar_web.sh ./tools/personalizar_web.sh
 # A pasta "web" não é versionada: gera o esqueleto em local temporário e copia.
 RUN flutter create --platforms=web --project-name mente_saudavel /tmp/gerado \
  && cp -r /tmp/gerado/web ./web \
+ && bash tools/personalizar_web.sh ./web \
  && flutter pub get \
  && flutter build web --release --dart-define=API_URL=/api --no-web-resources-cdn
 
