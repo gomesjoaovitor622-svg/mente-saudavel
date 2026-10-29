@@ -103,6 +103,11 @@ def load_settings() -> Settings:
     smtp_seguranca = os.environ.get("SMTP_SECURITY", "starttls").strip().lower()
     if smtp_seguranca not in {"starttls", "ssl", "none"}:
         raise RuntimeError("SMTP_SECURITY deve ser starttls, ssl ou none.")
+    smtp_host = os.environ.get("SMTP_HOST", "").strip()
+    smtp_from = os.environ.get("SMTP_FROM", "").strip()
+    if bool(smtp_host) != bool(smtp_from):
+        # Meia configuração desligaria o e-mail em silêncio: melhor recusar a subir.
+        raise RuntimeError("Configure SMTP_HOST e SMTP_FROM juntos (ou deixe os dois vazios para desligar o e-mail).")
     video_domain = os.environ.get("VIDEO_DOMAIN", "").strip().lower().removeprefix("https://").strip("/")
     return Settings(
         env=env,
@@ -125,11 +130,11 @@ def load_settings() -> Settings:
         video_antes_min=int(os.environ.get("VIDEO_ANTES_MIN", "15")),
         video_depois_min=int(os.environ.get("VIDEO_DEPOIS_MIN", "120")),
         app_tz=app_tz,
-        smtp_host=os.environ.get("SMTP_HOST", "").strip(),
+        smtp_host=smtp_host,
         smtp_port=int(os.environ.get("SMTP_PORT", "587")),
         smtp_user=os.environ.get("SMTP_USER", "").strip(),
         smtp_password=os.environ.get("SMTP_PASSWORD", ""),
-        smtp_from=os.environ.get("SMTP_FROM", "").strip(),
+        smtp_from=smtp_from,
         smtp_seguranca=smtp_seguranca,
         codigo_validade_min=int(os.environ.get("CODIGO_VALIDADE_MIN", "15")),
     )
