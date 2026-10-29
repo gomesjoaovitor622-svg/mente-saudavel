@@ -2,12 +2,13 @@ from __future__ import annotations
 
 import os
 from collections.abc import Iterator
-from datetime import datetime, timedelta
+from datetime import timedelta
 
 import pytest
 from fastapi.testclient import TestClient
 from sqlalchemy.pool import StaticPool
 
+from app import tempo
 from app.config import Settings
 from app.db import Base, make_engine
 from app.main import create_app
@@ -41,16 +42,18 @@ def client() -> Iterator[TestClient]:
         yield c
 
 
-def cadastrar(client: TestClient, email: str, perfil: str = "paciente", senha: str = "senha-forte-1", **extra: str) -> dict:
+def cadastrar(client: TestClient, email: str, perfil: str = "paciente", senha: str = "senha-forte-1", aprovado: bool = True, **extra: str) -> dict:
     body = {"nome": f"Nome {email}", "email": email, "senha": senha, "perfil": perfil, **extra}
     if perfil == "profissional":
         body.setdefault("registro", "06/00001")
     r = client.post("/auth/cadastro", json=body)
     assert r.status_code == 201, r.text
     data = r.json()
+    if perfil == "profissional" and aprovado:
+        client.app.state.aprovar(data["usuario"]["id"])  # type: ignore[attr-defined]
     return {"id": data["usuario"]["id"], "h": {"Authorization": f"Bearer {data['token']}"}}
 
 
 def futuro(horas: int = 48, hora: int = 10) -> str:
-    d = (datetime.now() + timedelta(hours=horas)).replace(hour=hora, minute=0, second=0, microsecond=0)
+    d = (tempo.agora() + timedelta(hours=horas)).replace(hour=hora, minute=0, second=0, microsecond=0)
     return d.isoformat()

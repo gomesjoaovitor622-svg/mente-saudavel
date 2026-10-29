@@ -36,6 +36,19 @@ def test_config_recusa_segredo_fraco(monkeypatch):
         load_settings()
     monkeypatch.setenv("CORS_ORIGINS", "https://a.com, https://b.com")
     monkeypatch.setenv("DATABASE_URL", "postgres://u:p@h/db")
+    monkeypatch.setenv("PRONTUARIO_KEYS", "chave-fernet-de-teste")  # em produção a chave do prontuário é obrigatória
     cfg = load_settings()
     assert cfg.cors_origins == ("https://a.com", "https://b.com")
     assert cfg.database_url.startswith("postgresql+psycopg://")
+
+
+def test_limpar_texto_cliente_nao_trava_com_texto_malicioso_e_mascara_email():
+    import time
+
+    from app.observabilidade import limpar_texto_cliente
+
+    t0 = time.perf_counter()
+    saida = limpar_texto_cliente("a" * 200_000 + "+" * 5_000 + "@", 300)
+    assert time.perf_counter() - t0 < 1.0  # tempo limitado (antes: risco de ReDoS)
+    assert saida is not None and len(saida) <= 300
+    assert limpar_texto_cliente("contato ana@ex.com.br fim\nlinha2", 300) == "contato [email] fim linha2"

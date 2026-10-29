@@ -15,6 +15,11 @@ class Usuario {
   final String? endereco; // consultório (somente profissional)
   final int? valorSessaoCentavos; // preço da sessão em centavos (somente profissional, modo servidor)
   final String criadoEm;
+  final String? aceiteTermosVersao; // LGPD: versão dos Termos/Política que a pessoa aceitou
+  // Só vêm do servidor. Profissional novo fica "em análise" até um administrador conferir o CRP.
+  final bool verificado;
+  // true quando o servidor envia e-mails e a pessoa ainda não confirmou o dela.
+  final bool precisaVerificarEmail;
 
   const Usuario({
     this.id,
@@ -28,6 +33,9 @@ class Usuario {
     this.endereco,
     this.valorSessaoCentavos,
     required this.criadoEm,
+    this.aceiteTermosVersao,
+    this.verificado = true,
+    this.precisaVerificarEmail = false,
   });
 
   bool get isProfissional => perfil == Perfil.profissional;
@@ -43,7 +51,9 @@ class Usuario {
       'registro': registro,
       'especialidade': especialidade,
       'endereco': endereco,
+      'valor_sessao_centavos': valorSessaoCentavos,
       'criado_em': criadoEm,
+      'aceite_termos_versao': aceiteTermosVersao,
     };
   }
 
@@ -60,6 +70,9 @@ class Usuario {
       endereco: map['endereco'] as String?,
       valorSessaoCentavos: (map['valor_sessao_centavos'] as num?)?.toInt(),
       criadoEm: (map['criado_em'] as String?) ?? '',
+      aceiteTermosVersao: map['aceite_termos_versao'] as String?,
+      verificado: (map['verificado'] as bool?) ?? true,
+      precisaVerificarEmail: (map['precisa_verificar_email'] as bool?) ?? false,
     );
   }
 
@@ -72,6 +85,7 @@ class Usuario {
     String? especialidade,
     String? endereco,
     int? valorSessaoCentavos,
+    String? aceiteTermosVersao,
   }) {
     return Usuario(
       id: id ?? this.id,
@@ -85,6 +99,9 @@ class Usuario {
       endereco: endereco ?? this.endereco,
       valorSessaoCentavos: valorSessaoCentavos ?? this.valorSessaoCentavos,
       criadoEm: criadoEm,
+      aceiteTermosVersao: aceiteTermosVersao ?? this.aceiteTermosVersao,
+      verificado: verificado,
+      precisaVerificarEmail: precisaVerificarEmail,
     );
   }
 }

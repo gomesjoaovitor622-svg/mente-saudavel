@@ -8,6 +8,7 @@ from typing import Any
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
+from app import tempo
 from app.models import Avaliacao, Humor, Sessao, Usuario
 from app.security import hash_senha
 
@@ -17,7 +18,8 @@ def popular_demo(db: Session) -> None:
         return  # só semeia banco vazio
 
     def user(nome: str, email: str, senha: str, perfil: str, **extra: Any) -> Usuario:
-        u = Usuario(nome=nome, email=email, senha_hash=hash_senha(senha), perfil=perfil, **extra)
+        # contas de demonstração já nascem aprovadas e com e-mail confirmado
+        u = Usuario(nome=nome, email=email, senha_hash=hash_senha(senha), perfil=perfil, verificado_em=tempo.agora(), email_verificado_em=tempo.agora(), **extra)
         db.add(u)
         db.flush()
         return u
@@ -36,7 +38,7 @@ def popular_demo(db: Session) -> None:
     user("Dra. Beatriz Souza", "beatriz@mentesaudavel.app", "mente123", "profissional", registro="06/11223", especialidade="Psicologia infantil")
     carlos = user("Carlos Silva", "carlos@email.com", "123456", "paciente")
 
-    agora = datetime.now().replace(minute=0, second=0, microsecond=0)
+    agora = tempo.agora().replace(minute=0, second=0, microsecond=0)
     dia = agora.replace(hour=10) - timedelta(days=9)
 
     def sessao(quando: datetime, modalidade: str, status: str, notas: str | None = None) -> Sessao:

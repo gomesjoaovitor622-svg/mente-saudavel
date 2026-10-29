@@ -39,6 +39,8 @@ jobs:
         run: |
           flutter create --platforms=web --project-name mente_saudavel "$RUNNER_TEMP/gerado"
           cp -r "$RUNNER_TEMP/gerado/web" ./web
+          # PWA instalável + metadados (manifest, ícones, descrição, tema)
+          bash tools/personalizar_web.sh ./web
 
       - name: Compilar (sem SQLite no navegador, dados no servidor)
         run: flutter build web --release --dart-define=API_URL=/api --no-web-resources-cdn
