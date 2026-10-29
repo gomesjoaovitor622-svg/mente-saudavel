@@ -12,3 +12,7 @@ __pycache__/
 *.pyc
 ci/api-validation/reports/
 ci/api-validation/relatorios/
+deploy/backups/
+env/*.json
+!env/*.json.example
+logs-locais/

@@ -1,27 +1,29 @@
-import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:mente_saudavel/models/usuario.dart';
+import 'package:mente_saudavel/presentation/providers/perfil_providers.dart';
 import 'package:mente_saudavel/screens/banco_screen.dart';
+import 'package:mente_saudavel/screens/termos_screen.dart';
 import 'package:mente_saudavel/utils/build_flags.dart';
 import 'package:mente_saudavel/services/api_service.dart';
-import 'package:mente_saudavel/services/api_client.dart';
 import 'package:mente_saudavel/services/auth_service.dart';
 import 'package:mente_saudavel/utils/app_exception.dart';
 import 'package:mente_saudavel/utils/formatters.dart';
 import 'package:mente_saudavel/utils/validators.dart';
 import 'package:mente_saudavel/widgets/componentes.dart';
+import 'package:mente_saudavel/widgets/pedir_senha_dialog.dart';
 
 /// Perfil do usuário logado (paciente ou profissional): editar, trocar
 /// senha, sair e excluir conta. Tudo grava no SQLite.
-class PerfilTab extends StatefulWidget {
+class PerfilTab extends ConsumerStatefulWidget {
   const PerfilTab({super.key});
 
   @override
-  State<PerfilTab> createState() => _PerfilTabState();
+  ConsumerState<PerfilTab> createState() => _PerfilTabState();
 }
 
-class _PerfilTabState extends State<PerfilTab> {
+class _PerfilTabState extends ConsumerState<PerfilTab> {
   final _formKey = GlobalKey<FormState>();
   late final TextEditingController _nome;
   late final TextEditingController _registro;
@@ -30,7 +32,6 @@ class _PerfilTabState extends State<PerfilTab> {
   late final TextEditingController _valor;
   final _cep = TextEditingController();
 
-  bool _salvando = false;
   bool _buscandoCep = false;
 
   Usuario get _usuario => AuthService.atual.value!;
@@ -62,7 +63,6 @@ class _PerfilTabState extends State<PerfilTab> {
 
   Future<void> _salvar() async {
     if (!_formKey.currentState!.validate()) return;
-    setState(() => _salvando = true);
     try {
       final u = _usuario;
       final atualizado = u.copyWith(
@@ -72,13 +72,12 @@ class _PerfilTabState extends State<PerfilTab> {
         endereco: u.isProfissional ? _endereco.text.trim() : null,
         valorSessaoCentavos: (u.isProfissional && usaServidor) ? centavosDeTexto(_valor.text) : null,
       );
-      await AuthService.atualizarPerfil(atualizado);
+      // O "carregando" vive no provider (a tela só observa `perfilControllerProvider`).
+      await ref.read(perfilControllerProvider.notifier).salvar(atualizado);
       if (!mounted) return;
-      setState(() => _salvando = false);
       mostrarMensagem(context, 'Perfil atualizado com sucesso!');
     } catch (_) {
       if (!mounted) return;
-      setState(() => _salvando = false);
       mostrarMensagem(context, 'Erro ao salvar o perfil.', erro: true);
     }
   }
@@ -118,8 +117,7 @@ class _PerfilTabState extends State<PerfilTab> {
   /// LGPD (portabilidade): mostra todos os dados da conta em JSON, com botão de copiar.
   Future<void> _exportarDados() async {
     try {
-      final dados = await ApiClient.get('/auth/eu/exportar');
-      final texto = const JsonEncoder.withIndent('  ').convert(dados);
+      final texto = await ref.read(perfilControllerProvider.notifier).exportarDados();
       if (!mounted) return;
       await showDialog<void>(
         context: context,
@@ -158,7 +156,7 @@ class _PerfilTabState extends State<PerfilTab> {
       textoConfirmar: 'Sair',
     );
     if (!ok) return;
-    await AuthService.sair();
+    await ref.read(perfilControllerProvider.notifier).sair();
   }
 
   Future<void> _excluirConta() async {
@@ -171,15 +169,39 @@ class _PerfilTabState extends State<PerfilTab> {
     );
     if (!ok || !mounted) return;
     try {
-      await AuthService.excluirConta();
+      await ref.read(perfilControllerProvider.notifier).excluirConta();
     } catch (_) {
       if (!mounted) return;
       mostrarMensagem(context, 'Erro ao excluir a conta.', erro: true);
     }
   }
 
+  /// LGPD, direito à eliminação: anonimiza os dados do paciente e encerra a sessão.
+  Future<void> _anonimizar() async {
+    final senha = await pedirSenha(
+      context,
+      titulo: 'Direito ao esquecimento',
+      mensagem: 'Seus dados pessoais serão anonimizados: nome e e-mail são apagados, o diário de humor e os '
+          'comentários de avaliação são excluídos e as sessões futuras são canceladas. O histórico das sessões '
+          'passadas fica sem identificar você (o profissional precisa guardá-lo por obrigação legal). '
+          'Essa ação não pode ser desfeita. Digite sua senha para confirmar.',
+      textoConfirmar: 'Anonimizar meus dados',
+    );
+    if (senha == null || !mounted) return;
+    try {
+      await ref.read(perfilControllerProvider.notifier).anonimizarConta(senha);
+    } on AppException catch (e) {
+      if (!mounted) return;
+      mostrarMensagem(context, e.mensagem, erro: true);
+    } catch (_) {
+      if (!mounted) return;
+      mostrarMensagem(context, 'Não foi possível anonimizar os dados.', erro: true);
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
+    final salvando = ref.watch(perfilControllerProvider).isLoading;
     final u = _usuario;
     final inicial = u.nome.trim().isNotEmpty ? u.nome.trim()[0].toUpperCase() : '?';
 
@@ -279,9 +301,9 @@ class _PerfilTabState extends State<PerfilTab> {
                   SizedBox(
                     height: 48,
                     child: FilledButton.icon(
-                      onPressed: _salvando ? null : _salvar,
+                      onPressed: salvando ? null : _salvar,
                       icon: const Icon(Icons.save),
-                      label: Text(_salvando ? 'Salvando...' : 'Salvar alterações'),
+                      label: Text(salvando ? 'Salvando...' : 'Salvar alterações'),
                     ),
                   ),
                 ],
@@ -319,6 +341,30 @@ class _PerfilTabState extends State<PerfilTab> {
               icon: const Icon(Icons.logout),
               label: const Text('Sair'),
             ),
+            const SizedBox(height: 8),
+            const Divider(height: 32),
+            Text('Privacidade e LGPD', style: Theme.of(context).textTheme.titleSmall),
+            ListTile(
+              key: const Key('abrir-termos'),
+              contentPadding: EdgeInsets.zero,
+              leading: const Icon(Icons.description_outlined),
+              title: const Text('Termos de Uso'),
+              onTap: () => abrirTermosDeUso(context),
+            ),
+            ListTile(
+              key: const Key('abrir-politica'),
+              contentPadding: EdgeInsets.zero,
+              leading: const Icon(Icons.privacy_tip_outlined),
+              title: const Text('Política de Privacidade'),
+              onTap: () => abrirPoliticaDePrivacidade(context),
+            ),
+            if (!u.isProfissional)
+              OutlinedButton.icon(
+                key: const Key('botao-anonimizar'),
+                onPressed: _anonimizar,
+                icon: const Icon(Icons.shield_outlined),
+                label: const Text('Direito ao esquecimento (anonimizar meus dados)'),
+              ),
             const SizedBox(height: 8),
             TextButton.icon(
               onPressed: _excluirConta,
