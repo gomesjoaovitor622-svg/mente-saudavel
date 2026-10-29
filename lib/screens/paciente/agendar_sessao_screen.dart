@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:mente_saudavel/presentation/providers/paciente_providers.dart';
 import 'package:mente_saudavel/presentation/providers/sessoes_providers.dart';
 import 'package:mente_saudavel/domain/repositories/sessao_repository.dart';
 import 'package:mente_saudavel/database/usuario_dao.dart';
@@ -8,6 +9,7 @@ import 'package:mente_saudavel/models/usuario.dart';
 import 'package:mente_saudavel/services/api_service.dart';
 import 'package:mente_saudavel/services/auth_service.dart';
 import 'package:mente_saudavel/utils/app_exception.dart';
+import 'package:mente_saudavel/utils/build_flags.dart';
 import 'package:mente_saudavel/utils/formatters.dart';
 import 'package:mente_saudavel/utils/relogio.dart';
 import 'package:mente_saudavel/widgets/componentes.dart';
@@ -142,7 +144,7 @@ class _AgendarSessaoScreenState extends ConsumerState<AgendarSessaoScreen> {
         modalidade: _modalidade,
       );
       if (!mounted) return;
-      ref.invalidate(minhasSessoesProvider); // a aba "Minhas sessões" recarrega sozinha
+      invalidarDadosDoPaciente(ref); // "Minhas sessões" e o Início recarregam sozinhos
       // id negativo = sem internet: ficou na fila e será enviada sozinha quando a conexão voltar.
       mostrarMensagem(
         context,
@@ -251,6 +253,14 @@ class _AgendarSessaoScreenState extends ConsumerState<AgendarSessaoScreen> {
           : ListView(
               padding: const EdgeInsets.fromLTRB(16, 0, 16, 24),
               children: [
+                if (usaServidor)
+                  Padding(
+                    padding: const EdgeInsets.only(top: 8),
+                    child: Text(
+                      'Todos os horários seguem o horário de Brasília.',
+                      style: TextStyle(color: Colors.grey.shade700, fontSize: 13),
+                    ),
+                  ),
                 _titulo('1. Profissional'),
                 if (_profissionais.isEmpty)
                   const Text('Nenhum profissional cadastrado.')

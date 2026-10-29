@@ -5,6 +5,8 @@ import 'package:mente_saudavel/domain/repositories/sessao_repository.dart';
 import 'package:mente_saudavel/models/sessao.dart';
 import 'package:mente_saudavel/utils/app_exception.dart';
 import 'package:mente_saudavel/services/seguranca.dart';
+import 'package:mente_saudavel/services/video_service.dart';
+import 'package:mente_saudavel/utils/build_flags.dart';
 import 'package:mente_saudavel/utils/formatters.dart';
 import 'package:mente_saudavel/widgets/avaliacao_widgets.dart';
 import 'package:mente_saudavel/widgets/componentes.dart';
@@ -151,8 +153,27 @@ class _SessaoSheetState extends State<_SessaoSheet> {
     );
   }
 
-  /// Sala de vídeo (Jitsi Meet) da sessão. O nome da sala é derivado de um hash,
-  /// para não ser uma sequência óbvia (ainda assim, quem tem o link entra).
+  /// Modo servidor: pede a sala ao servidor (só os dois participantes, numa janela de horário, com link
+  /// imprevisível) e abre no navegador. Se o navegador não abrir, copia o link.
+  Future<void> _entrarNaVideo() async {
+    setState(() => _ocupado = true);
+    try {
+      final sala = await VideoService.obterSala(_sessao.id!);
+      if (!mounted) return;
+      final abriu = await VideoService.abrir(sala.url);
+      if (!mounted) return;
+      if (!abriu) await _copiar(sala.url.toString(), 'Não consegui abrir o navegador. Link copiado: cole no navegador.');
+    } on AppException catch (e) {
+      if (mounted) mostrarMensagem(context, e.mensagem, erro: true);
+    } catch (_) {
+      if (mounted) mostrarMensagem(context, 'Não foi possível abrir a videochamada.', erro: true);
+    } finally {
+      if (mounted) setState(() => _ocupado = false);
+    }
+  }
+
+  /// SÓ no modo local (sem servidor): link derivado do id da sessão. NÃO é seguro (qualquer pessoa que conheça
+  /// o esquema consegue calcular a sala); por isso o modo servidor usa [_entrarNaVideo].
   String get _linkVideo {
     final sala = Seguranca.hashSenha('sessao-${_sessao.id}', 'mente-saudavel').substring(0, 16);
     return 'https://meet.jit.si/MenteSaudavel-$sala';
@@ -244,7 +265,16 @@ class _SessaoSheetState extends State<_SessaoSheet> {
                 endereco.isNotEmpty)
               _linha(Icons.map_outlined, endereco),
             if (s.valorCentavos > 0) _linha(Icons.payments_outlined, formatarReais(s.valorCentavos)),
-            if (s.agendada && s.modalidade == Modalidade.online)
+            if (s.agendada && s.modalidade == Modalidade.online && usaServidor && !s.pendente && s.id != null)
+              Padding(
+                padding: const EdgeInsets.only(top: 4),
+                child: FilledButton.icon(
+                  onPressed: _ocupado ? null : _entrarNaVideo,
+                  icon: const Icon(Icons.videocam),
+                  label: const Text('Entrar na videochamada'),
+                ),
+              ),
+            if (s.agendada && s.modalidade == Modalidade.online && !usaServidor)
               _botaoLink(Icons.videocam, 'Copiar link da videochamada', _linkVideo,
                   'Link copiado. Cole no navegador na hora da sessão.'),
             if (!profissional &&
