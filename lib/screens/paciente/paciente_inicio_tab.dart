@@ -5,6 +5,7 @@ import 'package:mente_saudavel/presentation/providers/paciente_providers.dart';
 import 'package:mente_saudavel/presentation/providers/sessoes_providers.dart';
 import 'package:mente_saudavel/screens/paciente/agendar_sessao_screen.dart';
 import 'package:mente_saudavel/utils/formatters.dart';
+import 'package:mente_saudavel/widgets/avisos_conta.dart';
 import 'package:mente_saudavel/widgets/componentes.dart';
 import 'package:mente_saudavel/widgets/medir_tela.dart';
 import 'package:mente_saudavel/widgets/sessao_sheet.dart';
@@ -140,6 +141,7 @@ class PacienteInicioTab extends ConsumerWidget {
                   style: const TextStyle(fontSize: 22, fontWeight: FontWeight.bold),
                 ),
                 const SizedBox(height: 16),
+                AvisosConta(usuario: usuario),
                 ...inicio.when(
                   skipLoadingOnReload: false,
                   loading: () => const [

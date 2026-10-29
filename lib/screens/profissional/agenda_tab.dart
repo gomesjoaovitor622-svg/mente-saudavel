@@ -2,7 +2,9 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:mente_saudavel/models/sessao.dart';
 import 'package:mente_saudavel/presentation/providers/profissional_providers.dart';
+import 'package:mente_saudavel/presentation/providers/sessoes_providers.dart';
 import 'package:mente_saudavel/utils/formatters.dart';
+import 'package:mente_saudavel/widgets/avisos_conta.dart';
 import 'package:mente_saudavel/widgets/componentes.dart';
 import 'package:mente_saudavel/widgets/medir_tela.dart';
 import 'package:mente_saudavel/widgets/sessao_sheet.dart';
@@ -45,6 +47,10 @@ class AgendaTab extends ConsumerWidget {
         ),
         body: Column(
           children: [
+            Padding(
+              padding: const EdgeInsets.fromLTRB(12, 8, 12, 0),
+              child: AvisosConta(usuario: ref.watch(usuarioAtualProvider)),
+            ),
             Padding(
               padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
               child: Row(

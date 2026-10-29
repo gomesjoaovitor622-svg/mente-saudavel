@@ -126,6 +126,37 @@ class AuthService {
     atual.value = logado;
   }
 
+  // ---- Recuperação de senha e confirmação de e-mail (só no modo servidor) ----
+
+  /// Pede o código de 6 dígitos por e-mail. A resposta é a mesma exista a conta ou não.
+  static Future<void> esqueciSenha(String email) async {
+    await ApiClient.post('/auth/senha/esqueci', autenticado: false, corpo: {'email': email.trim()});
+  }
+
+  static Future<void> redefinirSenha(String email, String codigo, String novaSenha) async {
+    await ApiClient.post('/auth/senha/redefinir', autenticado: false, corpo: {
+      'email': email.trim(),
+      'codigo': codigo.trim(),
+      'nova_senha': novaSenha,
+    });
+  }
+
+  static Future<void> reenviarCodigoEmail() async {
+    await ApiClient.post('/auth/email/codigo');
+  }
+
+  /// Confere o código e recarrega o usuário (some o aviso "confirme seu e-mail").
+  static Future<void> verificarEmail(String codigo) async {
+    await ApiClient.post('/auth/email/verificar', corpo: {'codigo': codigo.trim()});
+    atual.value = _doServidor(await ApiClient.get('/auth/eu'));
+  }
+
+  /// Recarrega o usuário (ex.: depois que o administrador aprovou o profissional).
+  static Future<void> recarregarUsuario() async {
+    if (!usaServidor) return;
+    atual.value = _doServidor(await ApiClient.get('/auth/eu'));
+  }
+
   static Future<void> sair() async {
     if (usaServidor) {
       await ApiClient.encerrarSessao();
