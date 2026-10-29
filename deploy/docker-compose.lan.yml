@@ -1,0 +1,7 @@
+# SÓ PARA TESTES NA SUA REDE WI-FI: publica a API em HTTP na porta 8000 para o celular acessar pelo IP do computador.
+#   docker compose -f docker-compose.prod.yml -f docker-compose.lan.yml up -d --build
+# Nunca use em servidor com IP público (sem HTTPS). Em produção o celular fala com https://SEU-DOMINIO/api via Caddy.
+services:
+  api:
+    ports:
+      - "8000:8000"

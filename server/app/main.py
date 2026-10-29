@@ -10,22 +10,30 @@ from collections.abc import Callable, Iterator
 from datetime import datetime, timedelta
 from typing import Annotated, Any
 
-from fastapi import Depends, FastAPI, Header, HTTPException, Query, Request, Response
+from fastapi import BackgroundTasks, Depends, FastAPI, Header, HTTPException, Query, Request, Response
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse, PlainTextResponse
-from sqlalchemy import Engine, case, delete, func, select, update
+from sqlalchemy import Engine, case, delete, exists, extract, func, select, update
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session, sessionmaker
 
-from app import schemas
+from app import prontuario as prontuario_api
+from app import schemas, tempo
+from app import video as video_api
 from app.config import Settings, load_settings
+from app.conta import Conta
+from app.conta import registrar_rotas as registrar_rotas_conta
+from app.cripto import CHAVE_DEV, Cofre
 from app.db import Base, garantir_colunas, garantir_indices, make_engine, make_session_factory, session_iter
-from app.models import Avaliacao, Humor, Sessao, Usuario
+from app.emailer import Mailer, NenhumMailer, SmtpMailer
+from app.migracoes import exigir_banco_migrado
+from app.models import Avaliacao, Humor, ProntuarioEntrada, Sessao, Usuario
 from app.observabilidade import REQUEST_ID_RE, Metricas, configurar_logs, limpar_texto_cliente
-from app.security import HASH_FALSO, criar_token, hash_senha, ler_token, verificar_senha
+from app.security import HASH_FALSO, criar_token, hash_senha, ler_token_com_versao, verificar_senha
 
 
-def _usuario_out(u: Usuario) -> dict[str, Any]:
+def _usuario_out(u: Usuario, email_ativo: bool = False) -> dict[str, Any]:
+    email_ok = u.email_verificado_em is not None
     return {
         "id": u.id,
         "nome": u.nome,
@@ -37,6 +45,11 @@ def _usuario_out(u: Usuario) -> dict[str, Any]:
         "valor_sessao_centavos": u.valor_sessao_centavos,
         "criado_em": u.criado_em.isoformat(),
         "aceite_termos_versao": u.aceite_termos_versao,
+        "email_verificado": email_ok,
+        # O app mostra o aviso "confirme seu e-mail" só quando o servidor consegue mesmo enviar o código.
+        "precisa_verificar_email": email_ativo and not email_ok,
+        # Profissional ainda não aprovado: não aparece na busca nem recebe agendamentos (paciente: sempre True).
+        "verificado": u.perfil != "profissional" or u.verificado_em is not None,
     }
 
 
@@ -59,7 +72,13 @@ def _sessao_out(s: Sessao, *, ver_anotacoes: bool) -> dict[str, Any]:
     }
 
 
-def _avaliacao_out(a: Avaliacao) -> dict[str, Any]:
+def _nome_curto(nome: str) -> str:
+    """ "Maria da Silva Souza" -> "Maria S.": quem não participou da sessão não precisa do nome completo."""
+    partes = nome.split()
+    return nome if len(partes) < 2 else f"{partes[0]} {partes[-1][0]}."
+
+
+def _avaliacao_out(a: Avaliacao, ver_nome_completo: bool = False) -> dict[str, Any]:
     return {
         "id": a.id,
         "sessao_id": a.sessao_id,
@@ -68,7 +87,7 @@ def _avaliacao_out(a: Avaliacao) -> dict[str, Any]:
         "nota": a.nota,
         "comentario": a.comentario,
         "criado_em": a.criado_em.isoformat(),
-        "paciente_nome": a.paciente.nome,
+        "paciente_nome": a.paciente.nome if ver_nome_completo else _nome_curto(a.paciente.nome),
     }
 
 
@@ -91,6 +110,9 @@ class _LimiteLogin:
 
     def checar(self, chave: str) -> None:
         agora = time.monotonic()
+        if len(self._tentativas) > 10_000:  # evita crescer sem fim com chaves (e-mails/IPs) que nunca voltam
+            for k in [k for k, f in self._tentativas.items() if not f or agora - f[-1] > 60]:
+                del self._tentativas[k]
         fila = self._tentativas[chave]
         while fila and agora - fila[0] > 60:
             fila.popleft()
@@ -106,19 +128,28 @@ COOKIE_SESSAO = "ms_sessao"
 _CHAVE_IDEMPOTENCIA = re.compile(r"[A-Za-z0-9_-]{8,64}")
 
 
-def create_app(settings: Settings | None = None, engine: Engine | None = None) -> FastAPI:
+def create_app(settings: Settings | None = None, engine: Engine | None = None, mailer: Mailer | None = None) -> FastAPI:
     cfg = settings or load_settings()
+    tempo.definir_fuso(cfg.app_tz)
     eng = engine or make_engine(cfg.database_url)
-    Base.metadata.create_all(eng)
-    garantir_colunas(eng)
-    indices_faltando = garantir_indices(eng)
-    if indices_faltando:
-        logging.getLogger("mente_saudavel").warning(
-            "Há sessões ativas duplicadas: não foi possível criar os índices %s. Cancele as duplicadas e reinicie.", indices_faltando
-        )
+    if cfg.schema_mode == "alembic":
+        # Produção: o esquema só muda por migrações versionadas. Falha ao subir se o banco estiver em outra versão.
+        exigir_banco_migrado(eng)
+    else:
+        Base.metadata.create_all(eng)
+        garantir_colunas(eng)
+        indices_faltando = garantir_indices(eng)
+        if indices_faltando:
+            logging.getLogger("mente_saudavel").warning(
+                "Há sessões ativas duplicadas: não foi possível criar os índices %s. Cancele as duplicadas e reinicie.", indices_faltando
+            )
     factory: sessionmaker[Session] = make_session_factory(eng)
     limite = _LimiteLogin(cfg.login_max_attempts)
     limite_cadastro = _LimiteLogin(cfg.signup_max_attempts)  # por IP: evita criação em massa de contas
+    limite_esqueci_ip = _LimiteLogin(10)  # "esqueci a senha" e "redefinir": por IP
+    limite_esqueci_email = _LimiteLogin(3)  # e-mails de recuperação por endereço (não vira ferramenta de spam)
+    limite_codigo_usuario = _LimiteLogin(5)  # reenvio/verificação de código por usuário
+    mailer = mailer or (SmtpMailer(cfg) if cfg.email_ativo else NenhumMailer())
 
     app = FastAPI(
         title="Mente Saudável API", version="1.0.0", docs_url="/docs" if cfg.is_dev else None, redoc_url=None, openapi_url="/openapi.json" if cfg.is_dev else None
@@ -187,13 +218,30 @@ def create_app(settings: Settings | None = None, engine: Engine | None = None) -
                 raise HTTPException(403, "Requisição não permitida.")
         if not token:
             raise HTTPException(401, "Não autenticado.")
-        uid = ler_token(token, cfg.jwt_secret)
-        user = db.get(Usuario, uid) if uid is not None else None
-        if user is None or user.anonimizado_em is not None:
+        lido = ler_token_com_versao(token, cfg.jwt_secret)
+        user = db.get(Usuario, lido[0]) if lido is not None else None
+        if user is None or user.anonimizado_em is not None or lido is None or lido[1] != user.token_versao:
             raise HTTPException(401, "Sessão expirada. Entre novamente.")
         return user
 
     Eu = Annotated[Usuario, Depends(usuario_atual)]
+
+    conta = Conta(cfg, mailer, log)
+    registrar_rotas_conta(app, cfg, conta, get_db, usuario_atual, limite_esqueci_ip, limite_esqueci_email, limite_codigo_usuario)
+
+    def _aprovar_por_id(uid: int) -> None:  # usado pelos testes (equivale a `python -m app.admin aprovar`)
+        with factory() as s:
+            u = s.get(Usuario, uid)
+            if u is not None:
+                u.verificado_em = tempo.agora()
+                s.commit()
+
+    app.state.aprovar = _aprovar_por_id
+
+    @app.get("/config")
+    def configuracao() -> dict[str, Any]:
+        """Informações públicas para o app (sem segredos): fuso dos horários e recursos ligados."""
+        return {"fuso": tempo.nome_do_fuso(), "fuso_rotulo": tempo.rotulo_do_fuso(), "email_ativo": cfg.email_ativo, "video_ativo": bool(cfg.video_domain)}
 
     def exigir_perfil(user: Usuario, perfil: str) -> None:
         if user.perfil != perfil:
@@ -244,12 +292,12 @@ def create_app(settings: Settings | None = None, engine: Engine | None = None) -
 
     # ------------------------------------------------------------------- auth
     def emitir(user: Usuario, response: Response) -> dict[str, Any]:
-        token = criar_token(user.id, cfg.jwt_secret, cfg.jwt_ttl_hours)
+        token = criar_token(user.id, cfg.jwt_secret, cfg.jwt_ttl_hours, user.token_versao)
         response.set_cookie(COOKIE_SESSAO, token, max_age=cfg.jwt_ttl_hours * 3600, httponly=True, secure=cfg.cookie_secure, samesite="strict", path="/")
-        return {"token": token, "usuario": _usuario_out(user)}
+        return {"token": token, "usuario": _usuario_out(user, cfg.email_ativo)}
 
     @app.post("/auth/cadastro", status_code=201)
-    def cadastro(body: schemas.CadastroIn, request: Request, response: Response, db: Db) -> dict[str, Any]:
+    def cadastro(body: schemas.CadastroIn, request: Request, response: Response, db: Db, background: BackgroundTasks) -> dict[str, Any]:
         limite_cadastro.checar(request.client.host if request.client else "?")
         if len(body.senha) < cfg.password_min:
             raise HTTPException(422, f"A senha deve ter pelo menos {cfg.password_min} caracteres.")
@@ -266,7 +314,7 @@ def create_app(settings: Settings | None = None, engine: Engine | None = None) -
             registro=(body.registro or None) if body.perfil == "profissional" else None,
             especialidade=(body.especialidade or None) if body.perfil == "profissional" else None,
             aceite_termos_versao=body.aceite_termos_versao,
-            aceite_termos_em=datetime.now().replace(microsecond=0) if body.aceite_termos_versao else None,
+            aceite_termos_em=tempo.agora().replace(microsecond=0) if body.aceite_termos_versao else None,
         )
         db.add(user)
         try:
@@ -274,6 +322,7 @@ def create_app(settings: Settings | None = None, engine: Engine | None = None) -
         except IntegrityError:
             db.rollback()
             raise HTTPException(409, "Este e-mail já está cadastrado.") from None
+        conta.enviar_verificacao(db, user, background)  # código de 6 dígitos por e-mail (se o SMTP estiver configurado)
         return emitir(user, response)
 
     @app.post("/auth/entrar")
@@ -298,7 +347,7 @@ def create_app(settings: Settings | None = None, engine: Engine | None = None) -
 
     @app.get("/auth/eu")
     def eu(user: Eu) -> dict[str, Any]:
-        return _usuario_out(user)
+        return _usuario_out(user, cfg.email_ativo)
 
     @app.get("/auth/eu/exportar")
     def exportar_meus_dados(user: Eu, db: Db) -> dict[str, Any]:
@@ -307,44 +356,58 @@ def create_app(settings: Settings | None = None, engine: Engine | None = None) -
         coluna = Sessao.profissional_id if souprof else Sessao.paciente_id
         sessoes = db.scalars(select(Sessao).where(coluna == user.id).order_by(Sessao.data_hora.asc()))
         dados: dict[str, Any] = {
-            "exportado_em": datetime.now().replace(microsecond=0).isoformat(),
-            "usuario": _usuario_out(user),
+            "exportado_em": tempo.agora().replace(microsecond=0).isoformat(),
+            "usuario": _usuario_out(user, cfg.email_ativo),
             # O profissional recebe as próprias anotações; o paciente nunca recebe as do profissional.
             "sessoes": [_sessao_out(s, ver_anotacoes=souprof) for s in sessoes],
         }
         if souprof:
             recebidas = db.scalars(select(Avaliacao).where(Avaliacao.profissional_id == user.id).order_by(Avaliacao.criado_em.asc()))
-            dados["avaliacoes_recebidas"] = [_avaliacao_out(a) for a in recebidas]
+            dados["avaliacoes_recebidas"] = [_avaliacao_out(a, True) for a in recebidas]
         else:
             feitas = db.scalars(select(Avaliacao).where(Avaliacao.paciente_id == user.id).order_by(Avaliacao.criado_em.asc()))
-            dados["avaliacoes_feitas"] = [_avaliacao_out(a) for a in feitas]
+            dados["avaliacoes_feitas"] = [_avaliacao_out(a, True) for a in feitas]
             humor = db.scalars(select(Humor).where(Humor.usuario_id == user.id).order_by(Humor.data_hora.asc()))
             dados["humor"] = [_humor_out(h) for h in humor]
         return dados
 
     @app.patch("/auth/eu")
     def atualizar_eu(body: schemas.PerfilIn, user: Eu, db: Db) -> dict[str, Any]:
+        if user.perfil == "profissional" and body.registro is not None and not body.registro.strip():
+            raise HTTPException(422, "O registro profissional (CRP) não pode ficar vazio.")
         user.nome = body.nome
         if user.perfil == "profissional":
-            user.registro = body.registro or None
+            if body.registro is not None:  # omitido = mantém o atual
+                user.registro = body.registro
             user.especialidade = body.especialidade or None
             user.endereco = body.endereco or None
             user.valor_sessao_centavos = body.valor_sessao_centavos
         db.commit()
-        return _usuario_out(user)
+        return _usuario_out(user, cfg.email_ativo)
 
-    @app.post("/auth/senha", status_code=204)
-    def alterar_senha(body: schemas.SenhaIn, user: Eu, db: Db) -> Response:
+    @app.post("/auth/senha")
+    def alterar_senha(body: schemas.SenhaIn, user: Eu, db: Db, response: Response) -> dict[str, Any]:
+        """Troca a senha e REVOGA os outros aparelhos: devolve um token novo só para quem acabou de trocar."""
+        chave = f"senha|{user.id}"
+        limite.checar(chave)  # quem roubou um token não pode adivinhar a senha atual à vontade
         if not verificar_senha(body.senha_atual, user.senha_hash):
             raise HTTPException(400, "A senha atual está incorreta.")
+        limite.limpar(chave)
         if len(body.nova_senha) < cfg.password_min:
             raise HTTPException(422, f"A senha deve ter pelo menos {cfg.password_min} caracteres.")
         user.senha_hash = hash_senha(body.nova_senha)
+        user.token_versao += 1
         db.commit()
-        return Response(status_code=204)
+        return emitir(user, response)
 
     @app.delete("/auth/eu", status_code=204)
     def excluir_conta(user: Eu, db: Db) -> Response:
+        if db.scalar(select(exists().where((ProntuarioEntrada.profissional_id == user.id) | (ProntuarioEntrada.paciente_id == user.id)))):
+            raise HTTPException(
+                409,
+                "Esta conta tem prontuário sob guarda legal e não pode ser apagada. Pacientes devem usar a anonimização; "
+                "profissionais devem exportar os dados e falar com o suporte.",
+            )
         db.delete(user)  # cascata no banco (FK ON DELETE CASCADE) via ORM abaixo
         db.commit()
         return Response(status_code=204)
@@ -353,9 +416,9 @@ def create_app(settings: Settings | None = None, engine: Engine | None = None) -
     def registrar_aceite(body: schemas.AceiteIn, user: Eu, db: Db) -> dict[str, Any]:
         """LGPD: registra qual versão dos Termos/Política a pessoa aceitou e quando (prova do consentimento)."""
         user.aceite_termos_versao = body.versao
-        user.aceite_termos_em = datetime.now().replace(microsecond=0)
+        user.aceite_termos_em = tempo.agora().replace(microsecond=0)
         db.commit()
-        return _usuario_out(user)
+        return _usuario_out(user, cfg.email_ativo)
 
     @app.post("/auth/eu/anonimizar", status_code=204)
     def anonimizar_conta(body: schemas.AnonimizarIn, user: Eu, db: Db) -> Response:
@@ -371,12 +434,12 @@ def create_app(settings: Settings | None = None, engine: Engine | None = None) -
         db.execute(delete(Humor).where(Humor.usuario_id == user.id))
         db.execute(update(Avaliacao).where(Avaliacao.paciente_id == user.id).values(comentario=""))
         # Sessões futuras são canceladas: o profissional não deve esperar alguém que já não existe.
-        db.execute(update(Sessao).where(Sessao.paciente_id == user.id, Sessao.status == "agendada", Sessao.data_hora > datetime.now()).values(status="cancelada"))
+        db.execute(update(Sessao).where(Sessao.paciente_id == user.id, Sessao.status == "agendada", Sessao.data_hora > tempo.agora()).values(status="cancelada"))
         user.nome = "Paciente anonimizado"
         user.email = f"anonimizado-{user.id}@anonimizado.invalid"
         user.senha_hash = HASH_FALSO  # ninguém conhece a senha deste hash
         user.aceite_termos_em = None
-        user.anonimizado_em = datetime.now().replace(microsecond=0)
+        user.anonimizado_em = tempo.agora().replace(microsecond=0)
         db.commit()
         log.info("conta_anonimizada", extra={"campos": {"usuario_id": user.id}})
         resp = Response(status_code=204)
@@ -429,7 +492,7 @@ def create_app(settings: Settings | None = None, engine: Engine | None = None) -
         stmt = (
             select(Usuario, media.label("media"), func.count(Avaliacao.id).label("total"))
             .outerjoin(Avaliacao, Avaliacao.profissional_id == Usuario.id)
-            .where(Usuario.perfil == "profissional")
+            .where(Usuario.perfil == "profissional", Usuario.verificado_em.is_not(None))  # só profissionais aprovados
             .where(Usuario.nome.ilike(termo) | func.coalesce(Usuario.especialidade, "").ilike(termo))
             .group_by(Usuario.id)
             .order_by(media.is_(None), media.desc(), func.lower(Usuario.nome))
@@ -451,7 +514,8 @@ def create_app(settings: Settings | None = None, engine: Engine | None = None) -
     @app.get("/profissionais/{prof_id}/avaliacoes")
     def avaliacoes_do_profissional(prof_id: int, user: Eu, db: Db, limite: int = Query(default=30, ge=1, le=1000)) -> list[dict[str, Any]]:
         stmt = select(Avaliacao).where(Avaliacao.profissional_id == prof_id).order_by(Avaliacao.criado_em.desc()).limit(limite)
-        return [_avaliacao_out(a) for a in db.scalars(stmt)]
+        # O nome completo do paciente só aparece para ele mesmo e para o profissional avaliado.
+        return [_avaliacao_out(a, user.id in (prof_id, a.paciente_id)) for a in db.scalars(stmt)]
 
     @app.get("/profissionais/{prof_id}/horas-ocupadas")
     def horas_ocupadas(prof_id: int, user: Eu, db: Db, dia: datetime) -> list[int]:
@@ -474,6 +538,7 @@ def create_app(settings: Settings | None = None, engine: Engine | None = None) -
         ate: datetime | None = None,
         nao_canceladas: bool = False,
         paciente_id: int | None = None,
+        limite: int = Query(default=1000, ge=1, le=5000),  # teto de segurança: uma conta não devolve milhões de linhas
     ) -> list[dict[str, Any]]:
         souprof = user.perfil == "profissional"
         stmt = select(Sessao).where((Sessao.profissional_id if souprof else Sessao.paciente_id) == user.id)
@@ -488,7 +553,7 @@ def create_app(settings: Settings | None = None, engine: Engine | None = None) -
         if paciente_id is not None and souprof:
             stmt = stmt.where(Sessao.paciente_id == paciente_id)
         stmt = stmt.order_by(Sessao.data_hora.asc() if (de or ate) else Sessao.data_hora.desc())
-        return [_sessao_out(s, ver_anotacoes=souprof) for s in db.scalars(stmt)]
+        return [_sessao_out(s, ver_anotacoes=souprof) for s in db.scalars(stmt.limit(limite))]
 
     @app.get("/sessoes/conflito")
     def conflito(user: Eu, db: Db, profissional_id: int, data_hora: datetime, ignorar_id: int = -1) -> dict[str, str | None]:
@@ -512,13 +577,22 @@ def create_app(settings: Settings | None = None, engine: Engine | None = None) -
             if existente is not None:
                 response.status_code = 200
                 return _sessao_out(existente, ver_anotacoes=False)
+        if cfg.email_ativo and user.email_verificado_em is None:
+            raise HTTPException(403, "Confirme seu e-mail antes de agendar uma sessão.")
         prof = db.get(Usuario, body.profissional_id)
-        if prof is None or prof.perfil != "profissional":
+        if prof is None or prof.perfil != "profissional" or prof.verificado_em is None:  # só profissional aprovado recebe agendamentos
             raise HTTPException(404, "Profissional não encontrado.")
-        if body.data_hora <= datetime.now():
+        if body.data_hora <= tempo.agora():
             raise HTTPException(422, "Escolha um horário no futuro.")
         msg = mensagem_conflito(db, prof.id, user.id, body.data_hora, -1)
         if msg:
+            if chave:
+                # Corrida com o próprio reenvio: o 1º envio acabou de gravar. Não é conflito, é a mesma sessão.
+                db.rollback()
+                existente = db.scalar(select(Sessao).where(Sessao.paciente_id == user.id, Sessao.chave_idempotencia == chave))
+                if existente is not None:
+                    response.status_code = 200
+                    return _sessao_out(existente, ver_anotacoes=False)
             raise HTTPException(409, msg)
         s = Sessao(
             paciente_id=user.id,
@@ -551,7 +625,7 @@ def create_app(settings: Settings | None = None, engine: Engine | None = None) -
         if body.data_hora is not None:
             if souprof:
                 raise HTTPException(403, "Somente o paciente remarca a sessão.")
-            if s.status == "cancelada" or body.data_hora <= datetime.now():
+            if s.status == "cancelada" or body.data_hora <= tempo.agora():
                 raise HTTPException(422, "Escolha um horário no futuro para uma sessão ativa.")
             msg = mensagem_conflito(db, s.profissional_id, s.paciente_id, body.data_hora, s.id)
             if msg:
@@ -599,7 +673,7 @@ def create_app(settings: Settings | None = None, engine: Engine | None = None) -
     def financeiro(user: Eu, db: Db, mes: str | None = Query(default=None, pattern=r"^\d{4}-(0[1-9]|1[0-2])$")) -> dict[str, Any]:
         """Faturamento do mês (YYYY-MM; padrão: mês atual): recebido (concluídas) e a receber (agendadas)."""
         exigir_perfil(user, "profissional")
-        hoje = datetime.now()
+        hoje = tempo.agora()
         ano, num = (int(mes[:4]), int(mes[5:])) if mes else (hoje.year, hoje.month)
         return {**faturamento_do_mes(db, user, ano, num), "valor_sessao_centavos": user.valor_sessao_centavos}
 
@@ -607,18 +681,43 @@ def create_app(settings: Settings | None = None, engine: Engine | None = None) -
     def historico_financeiro(user: Eu, db: Db, meses: int = Query(default=6, ge=1, le=24)) -> list[dict[str, Any]]:
         """Faturamento dos últimos `meses` meses (o mais recente primeiro), para a tela de histórico."""
         exigir_perfil(user, "profissional")
-        hoje = datetime.now()
+        hoje = tempo.agora()
+        meses_pedidos: list[tuple[int, int]] = []
         ano, num = hoje.year, hoje.month
-        saida: list[dict[str, Any]] = []
         for _ in range(meses):
-            saida.append(faturamento_do_mes(db, user, ano, num))
+            meses_pedidos.append((ano, num))
             ano, num = (ano - 1, 12) if num == 1 else (ano, num - 1)
+        # UMA consulta agrupada por mês e status (antes eram 2 consultas por mês).
+        ano_ini, mes_ini = meses_pedidos[-1]
+        ano_fim, mes_fim = meses_pedidos[0]
+        inicio = datetime(ano_ini, mes_ini, 1)
+        fim = datetime(ano_fim + (mes_fim == 12), 1 if mes_fim == 12 else mes_fim + 1, 1)
+        ano_col, mes_col = extract("year", Sessao.data_hora), extract("month", Sessao.data_hora)
+        linhas = db.execute(
+            select(ano_col, mes_col, Sessao.status, func.coalesce(func.sum(Sessao.valor_centavos), 0), func.count(Sessao.id))
+            .where(Sessao.profissional_id == user.id, Sessao.status.in_(("concluida", "agendada")), Sessao.data_hora >= inicio, Sessao.data_hora < fim)
+            .group_by(ano_col, mes_col, Sessao.status)
+        ).all()
+        totais = {(int(a), int(m), st): (int(v), int(q)) for a, m, st, v, q in linhas}
+        saida: list[dict[str, Any]] = []
+        for a, m in meses_pedidos:
+            recebido, concluidas = totais.get((a, m, "concluida"), (0, 0))
+            a_receber, agendadas = totais.get((a, m, "agendada"), (0, 0))
+            saida.append(
+                {
+                    "mes": f"{a:04d}-{m:02d}",
+                    "recebido_centavos": recebido,
+                    "sessoes_concluidas": concluidas,
+                    "a_receber_centavos": a_receber,
+                    "sessoes_agendadas": agendadas,
+                }
+            )
         return saida
 
     @app.get("/profissional/pacientes")
     def pacientes(user: Eu, db: Db) -> list[dict[str, Any]]:
         exigir_perfil(user, "profissional")
-        agora = datetime.now()
+        agora = tempo.agora()
         stmt = (
             select(
                 Usuario.id,
@@ -650,7 +749,7 @@ def create_app(settings: Settings | None = None, engine: Engine | None = None) -
     def ver_avaliacao(sessao_id: int, user: Eu, db: Db) -> dict[str, Any] | None:
         s = carregar_sessao(db, sessao_id, user)
         a = db.scalar(select(Avaliacao).where(Avaliacao.sessao_id == s.id))
-        return _avaliacao_out(a) if a else None
+        return _avaliacao_out(a, True) if a else None
 
     @app.put("/sessoes/{sessao_id}/avaliacao")
     def avaliar(sessao_id: int, body: schemas.AvaliacaoIn, user: Eu, db: Db) -> dict[str, Any]:
@@ -664,9 +763,9 @@ def create_app(settings: Settings | None = None, engine: Engine | None = None) -
             db.add(a)
         a.nota = body.nota
         a.comentario = body.comentario
-        a.criado_em = datetime.now().replace(microsecond=0)
+        a.criado_em = tempo.agora().replace(microsecond=0)
         db.commit()
-        return _avaliacao_out(a)
+        return _avaliacao_out(a, True)
 
     # ------------------------------------------------------------------- humor
     @app.get("/humor")
@@ -674,14 +773,14 @@ def create_app(settings: Settings | None = None, engine: Engine | None = None) -
         exigir_perfil(user, "paciente")
         stmt = select(Humor).where(Humor.usuario_id == user.id)
         if dias:
-            stmt = stmt.where(Humor.data_hora >= datetime.now() - timedelta(days=dias))
+            stmt = stmt.where(Humor.data_hora >= tempo.agora() - timedelta(days=dias))
         stmt = stmt.order_by(Humor.data_hora.desc()).limit(limite)
         return [_humor_out(h) for h in db.scalars(stmt)]
 
     @app.post("/humor", status_code=201)
     def registrar_humor(body: schemas.HumorIn, user: Eu, db: Db) -> dict[str, Any]:
         exigir_perfil(user, "paciente")
-        h = Humor(usuario_id=user.id, nivel=body.nivel, nota=body.nota, data_hora=body.data_hora or datetime.now().replace(microsecond=0))
+        h = Humor(usuario_id=user.id, nivel=body.nivel, nota=body.nota, data_hora=body.data_hora or tempo.agora().replace(microsecond=0))
         db.add(h)
         db.commit()
         return _humor_out(h)
@@ -694,6 +793,10 @@ def create_app(settings: Settings | None = None, engine: Engine | None = None) -
         db.delete(h)
         db.commit()
         return Response(status_code=204)
+
+    cofre = Cofre(cfg.prontuario_chaves or ((CHAVE_DEV,) if cfg.is_dev else ()))
+    prontuario_api.registrar_rotas(app, get_db, usuario_atual, cofre, log)
+    video_api.registrar_rotas(app, cfg, get_db, usuario_atual, log)
 
     if cfg.demo_seed:
         from app.seed import popular_demo

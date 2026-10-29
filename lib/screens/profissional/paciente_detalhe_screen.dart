@@ -2,7 +2,9 @@ import 'package:flutter/material.dart';
 import 'package:mente_saudavel/app/dependencias.dart';
 import 'package:mente_saudavel/domain/repositories/sessao_repository.dart';
 import 'package:mente_saudavel/models/sessao.dart';
+import 'package:mente_saudavel/screens/profissional/prontuario_screen.dart';
 import 'package:mente_saudavel/services/auth_service.dart';
+import 'package:mente_saudavel/utils/build_flags.dart';
 import 'package:mente_saudavel/widgets/componentes.dart';
 import 'package:mente_saudavel/widgets/sessao_sheet.dart';
 
@@ -55,7 +57,21 @@ class _PacienteDetalheScreenState extends State<PacienteDetalheScreen> {
   Widget build(BuildContext context) {
     final p = widget.paciente;
     return Scaffold(
-      appBar: AppBar(title: Text(p.nome)),
+      appBar: AppBar(
+        title: Text(p.nome),
+        actions: [
+          // O prontuário (cifrado, com histórico) só existe no modo servidor.
+          if (usaServidor)
+            IconButton(
+              icon: const Icon(Icons.assignment_outlined),
+              tooltip: 'Prontuário',
+              onPressed: () => Navigator.push<void>(
+                context,
+                MaterialPageRoute(builder: (_) => ProntuarioScreen(paciente: p)),
+              ),
+            ),
+        ],
+      ),
       body: _carregando
           ? const Center(child: CircularProgressIndicator())
           : ListView(

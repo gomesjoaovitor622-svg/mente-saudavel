@@ -1,0 +1,140 @@
+# PRODUÇÃO: PostgreSQL (volume persistente) + migrações Alembic + API + site Flutter + Caddy (HTTPS automático).
+#   cp .env.example .env   # edite os valores
+#   docker compose -f docker-compose.prod.yml up -d --build   # 1ª vez: ~5-10 min
+# Ordem de subida garantida: db saudável -> migrate (alembic upgrade head, termina) -> api -> caddy.
+services:
+  db:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: mente_saudavel
+      POSTGRES_USER: mente
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?defina POSTGRES_PASSWORD no .env}
+      TZ: ${TZ:-America/Sao_Paulo}
+    # Ajustes conservadores para uma VPS pequena (2 GB); aumente shared_buffers se tiver mais memória.
+    command: ["postgres", "-c", "shared_buffers=256MB", "-c", "max_connections=60", "-c", "log_min_duration_statement=500", "-c", "idle_in_transaction_session_timeout=30000"]
+    volumes:
+      - dbdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U mente -d mente_saudavel"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+    networks: [interna]
+
+  # Aplica as migrações versionadas e termina. Só depois disso a API sobe.
+  migrate:
+    build: ../server
+    image: mente-saudavel-api:prod
+    restart: "no"
+    depends_on:
+      db:
+        condition: service_healthy
+    command: ["alembic", "upgrade", "head"]
+    environment:
+      DATABASE_URL: postgresql+psycopg://mente:${POSTGRES_PASSWORD}@db:5432/mente_saudavel
+    read_only: true
+    tmpfs: [/tmp]
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges:true"]
+    networks: [interna]
+
+  api:
+    image: mente-saudavel-api:prod
+    restart: unless-stopped
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+    environment:
+      APP_ENV: production
+      SCHEMA_MODE: alembic          # a API nunca altera o esquema: só as migrações
+      COOKIE_SECURE: "true"         # cookie de sessão só trafega por HTTPS
+      DATABASE_URL: postgresql+psycopg://mente:${POSTGRES_PASSWORD}@db:5432/mente_saudavel
+      JWT_SECRET: ${JWT_SECRET:?defina JWT_SECRET no .env (openssl rand -hex 32)}
+      # Chave que cifra os prontuários. GUARDE UMA CÓPIA FORA DO SERVIDOR: sem ela os prontuários não abrem.
+      PRONTUARIO_KEYS: ${PRONTUARIO_KEYS:?defina PRONTUARIO_KEYS no .env (veja .env.example)}
+      # Videochamada (Jitsi com JWT). Vazio = recurso desligado. Veja docs/VIDEO.md.
+      VIDEO_DOMAIN: ${VIDEO_DOMAIN:-}
+      VIDEO_APP_ID: ${VIDEO_APP_ID:-mente-saudavel}
+      VIDEO_APP_SECRET: ${VIDEO_APP_SECRET:-}
+      VIDEO_ANTES_MIN: ${VIDEO_ANTES_MIN:-15}
+      VIDEO_DEPOIS_MIN: ${VIDEO_DEPOIS_MIN:-120}
+      CORS_ORIGINS: https://${DOMAIN:?defina DOMAIN no .env}
+      DEMO_SEED: ${DEMO_SEED:-false}
+      METRICS_TOKEN: ${METRICS_TOKEN:-}
+      TZ: ${TZ:-America/Sao_Paulo}
+      # Fuso dos horários das sessões (todos veem o horário de Brasília, independente do servidor).
+      APP_TZ: ${APP_TZ:-America/Sao_Paulo}
+      # E-mail (recuperar senha e confirmar e-mail). Sem SMTP_HOST/SMTP_FROM o recurso fica desligado.
+      SMTP_HOST: ${SMTP_HOST:-}
+      SMTP_PORT: ${SMTP_PORT:-587}
+      SMTP_USER: ${SMTP_USER:-}
+      SMTP_PASSWORD: ${SMTP_PASSWORD:-}
+      SMTP_FROM: ${SMTP_FROM:-}
+      SMTP_SECURITY: ${SMTP_SECURITY:-starttls}
+    read_only: true
+    tmpfs: [/tmp]
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges:true"]
+    networks: [interna]          # sem "ports": a API só é acessível pelo Caddy
+
+  # Compila o site Flutter e o publica no volume "webdata" (roda, copia e termina).
+  site:
+    build:
+      context: ..
+      dockerfile: deploy/site.Dockerfile
+    restart: "no"
+    volumes:
+      - webdata:/out
+
+  # Backup diário agendado dentro da pilha (pg_dump comprimido, com rotação). Arquivos em ./backups.
+  backup:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      PGHOST: db
+      PGUSER: mente
+      PGDATABASE: mente_saudavel
+      PGPASSWORD: ${POSTGRES_PASSWORD}
+      BACKUP_DIR: /backups
+      BACKUP_HORA: ${BACKUP_HORA:-03:00}
+      TZ: ${TZ:-America/Sao_Paulo}
+    volumes:
+      - ./backup/backup-postgres.sh:/usr/local/bin/backup-postgres.sh:ro
+      - ./backup/restore-postgres.sh:/usr/local/bin/restore-postgres.sh:ro
+      - ./backup/agendador.sh:/usr/local/bin/agendador.sh:ro
+      - ./backups:/backups
+    entrypoint: ["/bin/sh", "/usr/local/bin/agendador.sh"]
+    networks: [interna]
+
+  caddy:
+    image: caddy:2-alpine
+    restart: unless-stopped
+    depends_on:
+      api:
+        condition: service_started
+      site:
+        condition: service_completed_successfully
+    ports:
+      - "80:80"
+      - "443:443"
+    environment:
+      DOMAIN: ${DOMAIN}
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - webdata:/srv/web:ro      # site compilado pelo serviço "site"
+      - caddy_data:/data
+      - caddy_config:/config
+    networks: [interna]
+
+networks:
+  interna:
+
+volumes:
+  webdata:
+  dbdata:
+  caddy_data:
+  caddy_config:
