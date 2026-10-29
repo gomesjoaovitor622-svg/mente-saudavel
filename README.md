@@ -1,45 +1,55 @@
-# Mente Saudável + API Validation
+# Mente Saudável
 
-Aplicativo de psicoterapia acessível (Flutter, SQLite local) **e** um pipeline de validação contínua de APIs
-(contrato, CORS e segurança) com relatórios de conformidade, pronto para ser reutilizado em outros produtos.
+Aplicação de psicoterapia acessível com Flutter/Dart, API FastAPI e banco PostgreSQL para implantação multiusuário. O app também mantém um modo local com SQLite. O código existente foi preservado; este repositório contém o aplicativo, backend, testes, CI e arquivos de implantação.
 
-[![API Validation](https://github.com/gomesjoaovitor622-svg/mente-saudavel/actions/workflows/api-validation.yml/badge.svg?branch=dev)](https://github.com/gomesjoaovitor622-svg/mente-saudavel/actions/workflows/api-validation.yml)
-[![Security](https://github.com/gomesjoaovitor622-svg/mente-saudavel/actions/workflows/security.yml/badge.svg?branch=dev)](https://github.com/gomesjoaovitor622-svg/mente-saudavel/actions/workflows/security.yml)
-[![CodeQL](https://github.com/gomesjoaovitor622-svg/mente-saudavel/actions/workflows/codeql.yml/badge.svg?branch=dev)](https://github.com/gomesjoaovitor622-svg/mente-saudavel/actions/workflows/codeql.yml)
+## Componentes
 
-## O que há aqui
-| Parte | Descrição | Documentação |
+| Componente | Caminho | Finalidade |
 |---|---|---|
-| **Pipeline de validação** (`ci/api-validation/`) | Valida OpenAPI, CORS e segurança; diagnostica falhas; gera relatório executivo com atestado SLSA | [README](ci/api-validation/README.md) |
-| **App Mente Saudável** (`lib/`) | Cadastro, agenda de sessões, diário de humor; Android e web | [Guia do app](LEIA-ME.md) |
-| **CI/CD** (`.github/workflows/`) | 7 workflows com permissões mínimas e actions fixadas por SHA | [Implantação](ci/api-validation/docs/DEPLOYMENT.md) |
+| App Flutter | `lib/` | Cadastro, perfis de paciente/profissional, sessões e diário de humor |
+| Backend FastAPI | `server/` | Autenticação, autorização, sessões e registros de humor |
+| Implantação | `deploy/` | Docker Compose, PostgreSQL, Caddy/HTTPS e build do site |
+| Testes | `test/`, `server/tests/`, `tests/e2e/` | Testes Flutter, API e fluxos de implantação |
+| CI/CD | `.github/workflows/` | Análise, testes, build APK, build Web e verificações de segurança |
 
-## Postura de segurança (resumo)
-- Actions **fixadas por SHA**, permissões mínimas por job, zero injeção de template (verificado por `zizmor` e `actionlint`).
-- Dependências **com hash** (`--require-hashes`), auditoria de CVEs, SBOM, revisão de dependências, Dependabot com espera.
-- Segredos e **dados pessoais mascarados** em todo log e relatório; varredura de vazamento do token efêmero.
-- Serviço de teste isolado: `env -i`, somente loopback, token efêmero, timeout de socket.
-- Tipagem estrita, SAST, cobertura ≥ 90%, e o teste dos testes (defeitos injetados são todos detectados).
+## Escolha o modo de execução
 
-Detalhes, evidências e **riscos residuais** em [SECURITY-CONTROLS.md](ci/api-validation/docs/SECURITY-CONTROLS.md).
-Para reportar vulnerabilidades: [SECURITY.md](SECURITY.md).
+- **Modo local:** `API_URL` vazio. O aplicativo usa SQLite local; dados não sincronizam entre aparelhos.
+- **Modo servidor:** configure `API_URL` para a API. No site hospedado pelo Docker, o build usa `/api` e Caddy encaminha esse caminho ao FastAPI no mesmo domínio.
+- **Android com servidor:** no workflow Build APK, informe `api_url` como `https://SEU_DOMINIO/api` ao executar manualmente, ou configure a variável de repositório `API_URL`. O workflow valida o formato HTTPS; se ambos estiverem vazios, o APK usa SQLite local.
 
-## Para começar
-- Rodar o pipeline localmente: [ci/api-validation/README.md](ci/api-validation/README.md#início-rápido-local).
-- Implantar em um cliente: [DEPLOYMENT.md](ci/api-validation/docs/DEPLOYMENT.md).
-- Algo falhou? [TROUBLESHOOTING.md](ci/api-validation/docs/TROUBLESHOOTING.md).
-- Baixar o app: *Releases* (builds de produção por tag `vX.Y.Z`) ou *Actions → Build APK → Run workflow* (demonstração).
+## Colocar o sistema no ar
 
-## Status do produto (franqueza comercial)
-O **pipeline** está pronto para uso e auditoria técnica. O **app** é um protótipo funcional com limitações que impedem
-a venda como produto multiusuário (autenticação local, dados sem criptografia em repouso, sem backend): veja os riscos
-R1–R5 em SECURITY-CONTROLS.md e o plano sugerido abaixo.
+O projeto já tem configuração de implantação, mas **um workflow de build bem-sucedido não significa que o sistema esteja publicado na internet**.
 
-| Prioridade | Entrega | Resultado |
-|---|---|---|
-| 1 | Backend (API + banco) validado por este pipeline | Multiusuário real |
-| 2 | Hash de senha forte + criptografia em repouso + LGPD (consentimento, política, DPO) | Conformidade de dados sensíveis |
-| 3 | Assinatura de produção + testes do app + pentest | Pronto para a loja |
+1. Leia o [guia de implantação do site + API + PostgreSQL](deploy/README-DEPLOY.md).
+2. É necessário um servidor Linux com Docker/Compose, um domínio apontando para ele e as portas 80/443 acessíveis. Configure o arquivo `deploy/.env` no servidor; nunca envie esse arquivo ao GitHub.
+3. Suba a pilha com `docker compose up -d --build` a partir da pasta `deploy/`.
+4. Confirme `https://SEU_DOMINIO/api/health` e faça testes reais de cadastro, login, agendamento e diário de humor antes de usar dados reais.
+5. Para gerar o site que será servido pelo Caddy, use o serviço `site` do Compose ou o artefato `site-web` do workflow [Site para servidor](.github/workflows/build-site.yml).
+
+### Importante sobre GitHub Pages
+
+O workflow [Publicar versão Web](.github/workflows/deploy-web.yml) publica o exemplo em `exercicios/crud_jsonplaceholder/`; **ele não publica o aplicativo Mente Saudável completo**. O app completo foi projetado para ser servido no mesmo domínio da API por meio de Caddy, porque a sessão Web usa cookie HttpOnly/Secure e proteção anti-CSRF. Não configure o app de produção no GitHub Pages separado da API sem projetar e testar explicitamente outro modelo de autenticação.
+
+## Android (APK)
+
+O workflow [Build APK](.github/workflows/build-apk.yml) compila o APK e publica o artefato `MenteSaudavel-APK` na execução do workflow. Um build de demonstração pode conter contas de teste e pode estar assinado com chave de teste. Para distribuição pública, configure uma chave de assinatura própria e teste atualização/instalação. Para conectar o APK à API, informe `api_url` na execução manual do workflow ou configure a variável de repositório `API_URL` com a URL HTTPS terminada em `/api`.
+
+## Validação observada
+
+Em execuções recentes do GitHub Actions (commit `f1085d541679f9997f159d5ae9d6a4f952af11a3`), os jobs de análise Flutter, testes da API com SQLite/PostgreSQL, build Docker, health-check da API, build Web para servidor e build APK terminaram com sucesso. Isso valida os jobs executados naquele commit; não confirma DNS, HTTPS, instalação Android em aparelho real, funcionamento de todos os fluxos ou implantação pública.
+
+- [Execuções do GitHub Actions](https://github.com/gomesjoaovitor622-svg/mente-saudavel/actions)
+- [Guia completo do app](LEIA-ME.md)
+- [Limitações e riscos residuais de implantação](deploy/README-DEPLOY.md)
+
+## Segurança e privacidade
+
+O projeto lida com informações potencialmente sensíveis de saúde mental. Antes de usar com pacientes reais, revise a política de privacidade, consentimento, retenção e exclusão de dados, controles de acesso, backups e recuperação. Não use as contas de demonstração em produção; mantenha `DEMO_SEED=false` no servidor real.
+
+O pipeline de validação de API em `ci/api-validation/` é uma ferramenta auxiliar de teste e auditoria; não é uma certificação de segurança ou conformidade legal.
 
 ## Licença
-A definir pelo titular do projeto (nenhuma licença foi escolhida).
+
+A licença do projeto ainda precisa ser definida pelo titular.
