@@ -16,6 +16,10 @@ class Usuario {
   final int? valorSessaoCentavos; // preço da sessão em centavos (somente profissional, modo servidor)
   final String criadoEm;
   final String? aceiteTermosVersao; // LGPD: versão dos Termos/Política que a pessoa aceitou
+  // Só vêm do servidor. Profissional novo fica "em análise" até um administrador conferir o CRP.
+  final bool verificado;
+  // true quando o servidor envia e-mails e a pessoa ainda não confirmou o dela.
+  final bool precisaVerificarEmail;
 
   const Usuario({
     this.id,
@@ -30,6 +34,8 @@ class Usuario {
     this.valorSessaoCentavos,
     required this.criadoEm,
     this.aceiteTermosVersao,
+    this.verificado = true,
+    this.precisaVerificarEmail = false,
   });
 
   bool get isProfissional => perfil == Perfil.profissional;
@@ -65,6 +71,8 @@ class Usuario {
       valorSessaoCentavos: (map['valor_sessao_centavos'] as num?)?.toInt(),
       criadoEm: (map['criado_em'] as String?) ?? '',
       aceiteTermosVersao: map['aceite_termos_versao'] as String?,
+      verificado: (map['verificado'] as bool?) ?? true,
+      precisaVerificarEmail: (map['precisa_verificar_email'] as bool?) ?? false,
     );
   }
 
@@ -92,6 +100,8 @@ class Usuario {
       valorSessaoCentavos: valorSessaoCentavos ?? this.valorSessaoCentavos,
       criadoEm: criadoEm,
       aceiteTermosVersao: aceiteTermosVersao ?? this.aceiteTermosVersao,
+      verificado: verificado,
+      precisaVerificarEmail: precisaVerificarEmail,
     );
   }
 }

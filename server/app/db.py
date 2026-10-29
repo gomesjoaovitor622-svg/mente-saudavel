@@ -42,6 +42,9 @@ _COLUNAS_NOVAS: tuple[tuple[str, str, str], ...] = (
     ("usuarios", "aceite_termos_em", "TIMESTAMP"),
     ("usuarios", "anonimizado_em", "TIMESTAMP"),
     ("sessoes", "chave_idempotencia", "VARCHAR(64)"),
+    ("usuarios", "token_versao", "INTEGER NOT NULL DEFAULT 0"),
+    ("usuarios", "verificado_em", "TIMESTAMP"),
+    ("usuarios", "email_verificado_em", "TIMESTAMP"),
 )
 
 
@@ -57,6 +60,11 @@ def garantir_colunas(engine: Engine) -> list[str]:
         with engine.begin() as conn:
             conn.execute(text(f"ALTER TABLE {tabela} ADD COLUMN {coluna} {ddl}"))
         criadas.append(f"{tabela}.{coluna}")
+        if (tabela, coluna) in {("usuarios", "verificado_em"), ("usuarios", "email_verificado_em")}:
+            # contas que já existiam continuam funcionando: não bloqueamos quem já usava o sistema
+            sql = "UPDATE usuarios SET verificado_em = CURRENT_TIMESTAMP" if coluna == "verificado_em" else "UPDATE usuarios SET email_verificado_em = CURRENT_TIMESTAMP"
+            with engine.begin() as conn:
+                conn.execute(text(sql))
     return criadas
 
 

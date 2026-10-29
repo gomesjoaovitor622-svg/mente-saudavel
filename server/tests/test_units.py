@@ -36,6 +36,7 @@ def test_config_recusa_segredo_fraco(monkeypatch):
         load_settings()
     monkeypatch.setenv("CORS_ORIGINS", "https://a.com, https://b.com")
     monkeypatch.setenv("DATABASE_URL", "postgres://u:p@h/db")
+    monkeypatch.setenv("PRONTUARIO_KEYS", "chave-fernet-de-teste")  # em produção a chave do prontuário é obrigatória
     cfg = load_settings()
     assert cfg.cors_origins == ("https://a.com", "https://b.com")
     assert cfg.database_url.startswith("postgresql+psycopg://")
