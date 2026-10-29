@@ -26,6 +26,9 @@ class Sessao {
   final String? profissionalEndereco;
   final int valorCentavos; // preço combinado no agendamento (modo servidor)
 
+  /// `true` = agendada sem internet, ainda na fila de envio (não existe no servidor).
+  final bool pendente;
+
   const Sessao({
     this.id,
     required this.pacienteId,
@@ -40,6 +43,7 @@ class Sessao {
     this.profissionalEspecialidade,
     this.profissionalEndereco,
     this.valorCentavos = 0,
+    this.pendente = false,
   });
 
   bool get agendada => status == StatusSessao.agendada;
@@ -56,6 +60,40 @@ class Sessao {
     }
   }
 
+  Sessao copyWith({String? status, DateTime? dataHora}) => Sessao(
+        id: id,
+        pacienteId: pacienteId,
+        profissionalId: profissionalId,
+        dataHora: dataHora ?? this.dataHora,
+        modalidade: modalidade,
+        status: status ?? this.status,
+        anotacoes: anotacoes,
+        pacienteNome: pacienteNome,
+        profissionalNome: profissionalNome,
+        profissionalRegistro: profissionalRegistro,
+        profissionalEspecialidade: profissionalEspecialidade,
+        profissionalEndereco: profissionalEndereco,
+        valorCentavos: valorCentavos,
+        pendente: pendente,
+      );
+
+  /// Mapa completo (com os nomes vindos do JOIN) para guardar no cache offline; `fromMap` lê de volta.
+  Map<String, Object?> toCache() => {
+        'id': id,
+        'paciente_id': pacienteId,
+        'profissional_id': profissionalId,
+        'data_hora': dataHora.toIso8601String(),
+        'modalidade': modalidade,
+        'status': status,
+        'anotacoes': anotacoes,
+        'paciente_nome': pacienteNome,
+        'profissional_nome': profissionalNome,
+        'profissional_registro': profissionalRegistro,
+        'profissional_especialidade': profissionalEspecialidade,
+        'profissional_endereco': profissionalEndereco,
+        'valor_centavos': valorCentavos,
+      };
+
   Map<String, Object?> toMap() {
     return {
       if (id != null) 'id': id,
@@ -65,6 +103,7 @@ class Sessao {
       'modalidade': modalidade,
       'status': status,
       'anotacoes': anotacoes,
+      'valor_centavos': valorCentavos,
       'criado_em': DateTime.now().toIso8601String(),
     };
   }

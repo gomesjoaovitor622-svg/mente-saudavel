@@ -17,6 +17,8 @@ COPY requirements.txt .
 RUN pip install --require-hashes -r requirements.txt
 
 COPY app ./app
+COPY alembic.ini ./alembic.ini
+COPY migrations ./migrations
 USER 10001
 
 EXPOSE 8000

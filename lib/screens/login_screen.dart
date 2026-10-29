@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:mente_saudavel/screens/cadastro_screen.dart';
+import 'package:mente_saudavel/screens/recuperar_senha_screen.dart';
 import 'package:mente_saudavel/services/auth_service.dart';
 import 'package:mente_saudavel/utils/app_exception.dart';
 import 'package:mente_saudavel/utils/build_flags.dart';
@@ -109,7 +110,20 @@ class _LoginScreenState extends State<LoginScreen> {
                       style: TextStyle(color: Colors.red.shade700),
                     ),
                   ],
-                  const SizedBox(height: 16),
+                  if (usaServidor)
+                    Align(
+                      alignment: Alignment.centerRight,
+                      child: TextButton(
+                        onPressed: _carregando
+                            ? null
+                            : () => Navigator.push(
+                                  context,
+                                  MaterialPageRoute(builder: (_) => RecuperarSenhaScreen(emailInicial: _email.text)),
+                                ),
+                        child: const Text('Esqueci minha senha'),
+                      ),
+                    ),
+                  const SizedBox(height: 8),
                   SizedBox(
                     height: 48,
                     child: FilledButton(

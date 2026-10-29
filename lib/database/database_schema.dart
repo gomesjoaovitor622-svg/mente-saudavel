@@ -1,7 +1,9 @@
 import 'package:sqflite/sqflite.dart';
 
-/// Scripts de criação das tabelas. Rodam automaticamente ao abrir o banco.
-/// Todos usam "IF NOT EXISTS", então são seguros de executar várias vezes.
+/// Scripts de criação do banco (versão MAIS RECENTE do esquema).
+///
+/// Rodam só na 1ª execução (`onCreate`). Bancos que já existem não passam por aqui:
+/// eles evoluem pelos passos de `Migracoes`, que precisam deixar o banco idêntico a este.
 class DatabaseSchema {
   static const String _usuarios = '''
     CREATE TABLE IF NOT EXISTS usuarios (
@@ -14,7 +16,11 @@ class DatabaseSchema {
       registro       TEXT,
       especialidade  TEXT,
       endereco       TEXT,
-      criado_em      TEXT NOT NULL
+      valor_sessao_centavos INTEGER,
+      criado_em      TEXT NOT NULL,
+      aceite_termos_versao TEXT,
+      aceite_termos_em     TEXT,
+      anonimizado_em       TEXT
     )
   ''';
 
@@ -28,7 +34,34 @@ class DatabaseSchema {
       status           TEXT NOT NULL DEFAULT 'agendada'
                        CHECK (status IN ('agendada', 'concluida', 'cancelada')),
       anotacoes        TEXT,
+      valor_centavos   INTEGER NOT NULL DEFAULT 0,
       criado_em        TEXT NOT NULL
+    )
+  ''';
+
+  // v4: fila de ações feitas sem internet (Outbox Pattern). `chave` é a chave de idempotência
+  // enviada ao servidor: reenviar a mesma ação nunca a duplica.
+  static const String outbox = '''
+    CREATE TABLE IF NOT EXISTS outbox (
+      id          INTEGER PRIMARY KEY AUTOINCREMENT,
+      usuario_id  INTEGER NOT NULL,
+      tipo        TEXT NOT NULL CHECK (tipo IN ('agendar', 'status', 'remarcar')),
+      payload     TEXT NOT NULL,
+      chave       TEXT NOT NULL UNIQUE,
+      estado      TEXT NOT NULL DEFAULT 'pendente' CHECK (estado IN ('pendente', 'conflito', 'falhou')),
+      tentativas  INTEGER NOT NULL DEFAULT 0,
+      ultimo_erro TEXT,
+      criado_em   TEXT NOT NULL
+    )
+  ''';
+  static const String idxOutbox = 'CREATE INDEX IF NOT EXISTS idx_outbox_usuario ON outbox (usuario_id, id)';
+
+  // v4: última resposta do servidor (para ler sem internet). Apagado no logout.
+  static const String cacheKv = '''
+    CREATE TABLE IF NOT EXISTS cache_kv (
+      chave          TEXT PRIMARY KEY,
+      valor          TEXT NOT NULL,
+      atualizado_em  TEXT NOT NULL
     )
   ''';
 
@@ -43,7 +76,7 @@ class DatabaseSchema {
   ''';
 
   // v2: nota (1 a 5) e comentário que o paciente dá a uma sessão concluída.
-  static const String _avaliacoes = '''
+  static const String avaliacoes = '''
     CREATE TABLE IF NOT EXISTS avaliacoes (
       id               INTEGER PRIMARY KEY AUTOINCREMENT,
       sessao_id        INTEGER NOT NULL UNIQUE REFERENCES sessoes(id) ON DELETE CASCADE,
@@ -67,25 +100,36 @@ class DatabaseSchema {
       'CREATE INDEX IF NOT EXISTS idx_sessoes_prof ON sessoes (profissional_id, data_hora)';
   static const String _idxSessoesPaciente =
       'CREATE INDEX IF NOT EXISTS idx_sessoes_pac ON sessoes (paciente_id, data_hora)';
+  // Anti-corrida: o BANCO recusa duas sessões ativas no mesmo horário (cancelar libera o horário).
+  static const String idxSessaoProfissionalUnico =
+      "CREATE UNIQUE INDEX IF NOT EXISTS uq_sessao_prof_horario ON sessoes (profissional_id, data_hora) WHERE status <> 'cancelada'";
+  static const String idxSessaoPacienteUnico =
+      "CREATE UNIQUE INDEX IF NOT EXISTS uq_sessao_pac_horario ON sessoes (paciente_id, data_hora) WHERE status <> 'cancelada'";
+
   static const String _idxHumor =
       'CREATE INDEX IF NOT EXISTS idx_humor_usuario ON humor_registros (usuario_id, data_hora)';
 
-  static const String _idxAvaliacoes =
+  static const String idxAvaliacoes =
       'CREATE INDEX IF NOT EXISTS idx_avaliacoes_prof ON avaliacoes (profissional_id)';
 
   static const List<String> _scripts = [
     _usuarios,
     _sessoes,
     _humor,
-    _avaliacoes,
+    avaliacoes,
+    outbox,
+    cacheKv,
     _appSessao,
     _idxSessoesProfissional,
     _idxSessoesPaciente,
     _idxHumor,
-    _idxAvaliacoes,
+    idxAvaliacoes,
+    idxOutbox,
+    idxSessaoProfissionalUnico,
+    idxSessaoPacienteUnico,
   ];
 
-  static Future<void> executar(DatabaseExecutor db) async {
+  static Future<void> criarTudo(DatabaseExecutor db) async {
     for (final script in _scripts) {
       await db.execute(script);
     }

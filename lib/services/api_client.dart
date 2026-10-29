@@ -1,17 +1,27 @@
 import 'dart:async';
 import 'dart:convert';
 import 'package:http/http.dart' as http;
-import 'package:shared_preferences/shared_preferences.dart';
+import 'package:flutter/foundation.dart' show kIsWeb;
+import 'package:mente_saudavel/services/telemetria.dart';
+import 'package:mente_saudavel/services/token_store.dart';
 import 'package:mente_saudavel/utils/app_exception.dart';
 import 'package:mente_saudavel/utils/build_flags.dart';
 
 /// Cliente HTTP da API do Mente Saudável (usado só quando `usaServidor` é true).
 /// Guarda o token de login e converte erros do servidor em [AppException].
 class ApiClient {
-  static const String _chaveToken = 'ms_token';
   static const Duration _limite = Duration(seconds: 20);
 
+  /// Na web a credencial é um cookie HttpOnly (o navegador envia sozinho, no mesmo domínio do
+  /// site). No celular é o token guardado no Keystore/Keychain, enviado no cabeçalho.
+  static bool usaCookie = kIsWeb;
+
+  static TokenStore armazenamento = kIsWeb ? TokenStoreWeb() : TokenStoreSeguro();
+
   static String? _token;
+
+  /// Cliente HTTP. Trocável nos testes (`MockClient`).
+  static http.Client cliente = http.Client();
 
   /// Chamado quando o servidor responde 401 (sessão expirada): a tela raiz volta ao login.
   static void Function()? aoExpirar;
@@ -19,8 +29,7 @@ class ApiClient {
   static Future<String?> carregarToken() async {
     if (_token != null) return _token;
     try {
-      final prefs = await SharedPreferences.getInstance();
-      _token = prefs.getString(_chaveToken);
+      _token = await armazenamento.ler();
     } catch (_) {
       _token = null;
     }
@@ -28,10 +37,10 @@ class ApiClient {
   }
 
   static Future<void> salvarToken(String token) async {
+    if (usaCookie) return; // o servidor já mandou o cookie; o token não fica acessível ao app
     _token = token;
     try {
-      final prefs = await SharedPreferences.getInstance();
-      await prefs.setString(_chaveToken, token);
+      await armazenamento.gravar(token);
     } catch (_) {
       // Sem armazenamento: o login vale só até fechar o app.
     }
@@ -40,9 +49,18 @@ class ApiClient {
   static Future<void> limparToken() async {
     _token = null;
     try {
-      final prefs = await SharedPreferences.getInstance();
-      await prefs.remove(_chaveToken);
+      await armazenamento.apagar();
     } catch (_) {}
+  }
+
+  /// Encerra a sessão: o servidor apaga o cookie (só ele consegue) e o token local some.
+  static Future<void> encerrarSessao() async {
+    try {
+      await _enviar('POST', '/auth/sair');
+    } catch (_) {
+      // Sem rede ou sessão já expirada: o logout local continua valendo.
+    }
+    await limparToken();
   }
 
   static Uri _uri(String caminho, Map<String, String>? consulta) {
@@ -59,22 +77,30 @@ class ApiClient {
     Map<String, String>? consulta,
     Object? corpo,
     bool autenticado = true,
+    Map<String, String>? extras,
   }) async {
-    final cabecalhos = <String, String>{'Content-Type': 'application/json'};
+    // X-Requested-With: o servidor exige este cabeçalho nas ações feitas com cookie (anti-CSRF).
+    final cabecalhos = <String, String>{'Content-Type': 'application/json', 'X-Requested-With': 'mente-saudavel'};
     final token = autenticado ? await carregarToken() : null;
     if (token != null) cabecalhos['Authorization'] = 'Bearer $token';
+    if (extras != null) cabecalhos.addAll(extras);
 
     final req = http.Request(metodo, _uri(caminho, consulta))..headers.addAll(cabecalhos);
     if (corpo != null) req.body = jsonEncode(corpo);
 
+    final relogio = Stopwatch()..start();
+    final nomeMetrica = Telemetria.normalizarCaminho(metodo, caminho);
     http.Response resposta;
     try {
-      resposta = await http.Response.fromStream(await req.send().timeout(_limite));
+      resposta = await http.Response.fromStream(await cliente.send(req).timeout(_limite));
     } on TimeoutException {
-      throw const AppException('O servidor demorou para responder. Tente novamente.');
+      Telemetria.registrarRede(nomeMetrica, relogio.elapsedMilliseconds, 0);
+      throw const SemConexaoException('O servidor demorou para responder. Tente novamente.');
     } catch (_) {
-      throw const AppException('Sem conexão com o servidor. Verifique a internet.');
+      Telemetria.registrarRede(nomeMetrica, relogio.elapsedMilliseconds, 0);
+      throw const SemConexaoException('Sem conexão com o servidor. Verifique a internet.');
     }
+    Telemetria.registrarRede(nomeMetrica, relogio.elapsedMilliseconds, resposta.statusCode);
 
     final texto = utf8.decode(resposta.bodyBytes);
     final dados = texto.isEmpty ? null : _decodificar(texto);
@@ -85,7 +111,10 @@ class ApiClient {
       await limparToken();
       aoExpirar?.call();
     }
-    throw AppException(_mensagemDeErro(resposta.statusCode, dados));
+    final mensagem = _mensagemDeErro(resposta.statusCode, dados);
+    // 409 = conflito com o estado atual (ex.: horário já ocupado): tipo próprio para a tela reagir.
+    if (resposta.statusCode == 409) throw ConflitoException(mensagem);
+    throw AppException(mensagem, statusHttp: resposta.statusCode);
   }
 
   static dynamic _decodificar(String texto) {
@@ -109,8 +138,13 @@ class ApiClient {
   static Future<dynamic> get(String caminho, {Map<String, String>? consulta}) =>
       _enviar('GET', caminho, consulta: consulta);
 
-  static Future<dynamic> post(String caminho, {Object? corpo, bool autenticado = true}) =>
-      _enviar('POST', caminho, corpo: corpo, autenticado: autenticado);
+  /// [chaveIdempotencia]: o servidor devolve o MESMO resultado se a mesma chave chegar de novo
+  /// (necessário para a fila offline reenviar sem duplicar).
+  static Future<dynamic> post(String caminho, {Object? corpo, bool autenticado = true, String? chaveIdempotencia}) =>
+      _enviar('POST', caminho,
+          corpo: corpo,
+          autenticado: autenticado,
+          extras: chaveIdempotencia == null ? null : {'Idempotency-Key': chaveIdempotencia});
 
   static Future<dynamic> put(String caminho, {Object? corpo}) => _enviar('PUT', caminho, corpo: corpo);
 
