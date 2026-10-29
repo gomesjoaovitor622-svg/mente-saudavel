@@ -145,6 +145,7 @@ jobs:
           path: dist
 
       - name: Atestar procedência do APK (SLSA)
+        continue-on-error: true  # exige recurso habilitado no repositório; sem ele o APK é publicado mesmo assim
         uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
         with:
           subject-path: dist/MenteSaudavel.apk
