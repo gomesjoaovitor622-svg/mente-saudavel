@@ -1,30 +1,36 @@
 import 'package:flutter/material.dart';
-import 'package:mente_saudavel/database/sessao_dao.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:mente_saudavel/presentation/providers/paciente_providers.dart';
+import 'package:mente_saudavel/presentation/providers/sessoes_providers.dart';
+import 'package:mente_saudavel/domain/repositories/sessao_repository.dart';
 import 'package:mente_saudavel/database/usuario_dao.dart';
 import 'package:mente_saudavel/models/sessao.dart';
 import 'package:mente_saudavel/models/usuario.dart';
 import 'package:mente_saudavel/services/api_service.dart';
 import 'package:mente_saudavel/services/auth_service.dart';
+import 'package:mente_saudavel/utils/app_exception.dart';
+import 'package:mente_saudavel/utils/build_flags.dart';
 import 'package:mente_saudavel/utils/formatters.dart';
+import 'package:mente_saudavel/utils/relogio.dart';
 import 'package:mente_saudavel/widgets/componentes.dart';
 
 /// Agendamento: escolhe profissional, data, horário e modalidade.
 /// Os horários já ocupados vêm do banco; os feriados vêm da BrasilAPI.
-class AgendarSessaoScreen extends StatefulWidget {
+class AgendarSessaoScreen extends ConsumerStatefulWidget {
   /// Se informado, o profissional já vem escolhido (vindo da busca).
   final int? profissionalId;
 
   const AgendarSessaoScreen({super.key, this.profissionalId});
 
   @override
-  State<AgendarSessaoScreen> createState() => _AgendarSessaoScreenState();
+  ConsumerState<AgendarSessaoScreen> createState() => _AgendarSessaoScreenState();
 }
 
-class _AgendarSessaoScreenState extends State<AgendarSessaoScreen> {
+class _AgendarSessaoScreenState extends ConsumerState<AgendarSessaoScreen> {
   static const List<int> _horarios = [8, 9, 10, 11, 13, 14, 15, 16, 17, 18];
 
   final UsuarioDao _usuarioDao = UsuarioDao();
-  final SessaoDao _sessaoDao = SessaoDao();
+  SessaoRepository get _sessaoDao => ref.read(sessaoRepositoryProvider);
 
   List<Usuario> _profissionais = [];
   Usuario? _profissional;
@@ -90,7 +96,7 @@ class _AgendarSessaoScreenState extends State<AgendarSessaoScreen> {
   }
 
   Future<void> _escolherData() async {
-    final agora = DateTime.now();
+    final agora = Relogio.agora();
     final escolhida = await showDatePicker(
       context: context,
       initialDate: _data ?? agora,
@@ -129,32 +135,31 @@ class _AgendarSessaoScreenState extends State<AgendarSessaoScreen> {
     setState(() => _salvando = true);
 
     try {
-      // Confere de novo no banco, para evitar horário duplicado.
-      final conflito = await _sessaoDao.verificarConflito(
-        profissionalId: profissional.id!,
+      // Atômico: o repositório confere o horário e grava na mesma transação (e o banco ainda
+      // tem índice único). Se o horário foi ocupado nesse meio tempo, sobe ConflitoException.
+      final id = await _sessaoDao.agendar(
         pacienteId: pacienteId,
+        profissionalId: profissional.id!,
         dataHora: dataHora,
-      );
-      if (conflito != null) {
-        if (!mounted) return;
-        setState(() => _salvando = false);
-        mostrarMensagem(context, conflito, erro: true);
-        await _atualizarDisponibilidade();
-        return;
-      }
-
-      await _sessaoDao.inserir(
-        Sessao(
-          pacienteId: pacienteId,
-          profissionalId: profissional.id!,
-          dataHora: dataHora,
-          modalidade: _modalidade,
-          status: StatusSessao.agendada,
-        ),
+        modalidade: _modalidade,
       );
       if (!mounted) return;
-      mostrarMensagem(context, 'Sessão agendada com sucesso!');
+      invalidarDadosDoPaciente(ref); // "Minhas sessões" e o Início recarregam sozinhos
+      // id negativo = sem internet: ficou na fila e será enviada sozinha quando a conexão voltar.
+      mostrarMensagem(
+        context,
+        id < 0 ? 'Sem internet: o agendamento foi guardado e será enviado assim que a conexão voltar.' : 'Sessão agendada com sucesso!',
+      );
       Navigator.pop(context, true);
+    } on ConflitoException catch (e) {
+      if (!mounted) return;
+      setState(() => _salvando = false);
+      mostrarMensagem(context, e.mensagem, erro: true);
+      await _atualizarDisponibilidade(); // o horário some das opções
+    } on AppException catch (e) {
+      if (!mounted) return;
+      setState(() => _salvando = false);
+      mostrarMensagem(context, e.mensagem, erro: true);
     } catch (_) {
       if (!mounted) return;
       setState(() => _salvando = false);
@@ -206,7 +211,7 @@ class _AgendarSessaoScreenState extends State<AgendarSessaoScreen> {
         style: TextStyle(color: Colors.grey.shade700),
       );
     }
-    final agora = DateTime.now();
+    final agora = Relogio.agora();
     return Wrap(
       spacing: 8,
       runSpacing: 8,
@@ -248,6 +253,14 @@ class _AgendarSessaoScreenState extends State<AgendarSessaoScreen> {
           : ListView(
               padding: const EdgeInsets.fromLTRB(16, 0, 16, 24),
               children: [
+                if (usaServidor)
+                  Padding(
+                    padding: const EdgeInsets.only(top: 8),
+                    child: Text(
+                      'Todos os horários seguem o horário de Brasília.',
+                      style: TextStyle(color: Colors.grey.shade700, fontSize: 13),
+                    ),
+                  ),
                 _titulo('1. Profissional'),
                 if (_profissionais.isEmpty)
                   const Text('Nenhum profissional cadastrado.')

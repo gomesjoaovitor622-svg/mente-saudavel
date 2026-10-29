@@ -2,6 +2,7 @@ import 'package:sqflite/sqflite.dart';
 import 'package:mente_saudavel/database/database_helper.dart';
 import 'package:mente_saudavel/models/avaliacao.dart';
 import 'package:mente_saudavel/services/api_client.dart';
+import 'package:mente_saudavel/utils/app_exception.dart';
 import 'package:mente_saudavel/utils/build_flags.dart';
 
 /// Acesso à tabela "avaliacoes" e à busca de profissionais com nota média.
@@ -16,7 +17,23 @@ class AvaliacaoDao {
       return;
     }
     final db = await _db;
-    await db.insert('avaliacoes', a.toMap(), conflictAlgorithm: ConflictAlgorithm.replace);
+    // Transação: conferir a sessão e gravar a nota são um bloco só (a mesma regra do servidor).
+    await db.transaction((txn) async {
+      final sessao = await txn.query(
+        'sessoes',
+        columns: ['paciente_id', 'status'],
+        where: 'id = ?',
+        whereArgs: [a.sessaoId],
+        limit: 1,
+      );
+      if (sessao.isEmpty || sessao.first['paciente_id'] != a.pacienteId) {
+        throw const AppException('Sessão não encontrada.');
+      }
+      if (sessao.first['status'] != 'concluida') {
+        throw const AppException('Só é possível avaliar sessões concluídas.');
+      }
+      await txn.insert('avaliacoes', a.toMap(), conflictAlgorithm: ConflictAlgorithm.replace);
+    });
   }
 
   Future<Avaliacao?> daSessao(int sessaoId) async {
