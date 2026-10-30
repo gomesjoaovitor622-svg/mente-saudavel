@@ -17,7 +17,3 @@ const bool usaServidor = kApiUrl != '';
 
 /// Versão do app, para aparecer na telemetria. O CI passa `--dart-define=APP_VERSION=<tag ou commit>`.
 const String kAppVersao = String.fromEnvironment('APP_VERSION', defaultValue: 'dev');
-
-/// Mostra a tela "Ver banco de dados" (inspetor do SQLite local). SOMENTE em build de demonstração
-/// sem servidor: no app de produção o usuário não pode ver nem consultar o banco.
-const bool kMostrarInspetorDeBanco = kDemoMode && !usaServidor;

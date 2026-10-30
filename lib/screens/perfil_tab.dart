@@ -3,7 +3,6 @@ import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:mente_saudavel/models/usuario.dart';
 import 'package:mente_saudavel/presentation/providers/perfil_providers.dart';
-import 'package:mente_saudavel/screens/banco_screen.dart';
 import 'package:mente_saudavel/screens/termos_screen.dart';
 import 'package:mente_saudavel/utils/build_flags.dart';
 import 'package:mente_saudavel/services/api_service.dart';
@@ -316,19 +315,6 @@ class _PerfilTabState extends ConsumerState<PerfilTab> {
               label: const Text('Alterar senha'),
             ),
             const SizedBox(height: 8),
-            // Ferramenta de DESENVOLVIMENTO: lê o SQLite local inteiro (inclui hashes de senha) e aceita SELECT livre.
-            // Por isso só existe em build de demonstração, nunca no app entregue a usuários.
-            if (kMostrarInspetorDeBanco) ...[
-              OutlinedButton.icon(
-                onPressed: () => Navigator.push(
-                  context,
-                  MaterialPageRoute(builder: (_) => const BancoScreen()),
-                ),
-                icon: const Icon(Icons.storage_outlined),
-                label: const Text('Ver banco de dados (SQLite)'),
-              ),
-              const SizedBox(height: 8),
-            ],
             if (usaServidor) ...[
               OutlinedButton.icon(
                 onPressed: _exportarDados,

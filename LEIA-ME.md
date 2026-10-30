@@ -98,9 +98,8 @@ usuarios (id PK, nome, email UNIQUE NOCASE, senha_hash, salt, perfil, registro, 
 - Senhas do modo local são gravadas como **PBKDF2-HMAC-SHA256 (100 mil iterações, sal por usuário)** (nunca em texto puro). Contas antigas com SHA-256 entram normalmente e são convertidas no primeiro login. No modo servidor a senha usa scrypt, no servidor.
 - Banco criado e populado no `onCreate`; `onOpen` roda o script `IF NOT EXISTS` (auto-correção).
 
-### Como ver e usar o banco
-- **No app:** *Perfil → Ver banco de dados (SQLite)*: tabelas, estrutura, dados, consultas SELECT (somente leitura) e
-  botão **Copiar script SQL completo**. As senhas ficam ocultas. Funciona no celular e na web.
+### Como ver o banco (só para desenvolvimento)
+- **No app:** não existe tela para ver o banco (nenhum usuário, paciente ou profissional, tem acesso ao banco pelo aplicativo).
 - **No computador:** a pasta `banco_de_dados/` tem um `.db` de exemplo, o script SQL e consultas prontas
   (abra no DB Browser for SQLite ou em sqliteviewer.app). Veja `banco_de_dados/LEIA-ME_BANCO.md`.
 
