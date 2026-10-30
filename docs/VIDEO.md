@@ -15,7 +15,7 @@ Segurança:
 - O log registra apenas `sessao_id` e `usuario_id` — **nunca** a URL nem o token.
 - No app, o botão "Entrar na videochamada" pede o link ao servidor e o abre no navegador do aparelho (que pede câmera/microfone). Se o navegador não abrir, o link é copiado.
 
-> **Modo local (sem servidor)**: o app ainda mostra "Copiar link da videochamada" com uma sala pública derivada do id da sessão. Isso **não é seguro** (a sala é calculável e o Jitsi público não tem senha). Serve só para demonstração; para atendimento real use o modo servidor.
+> **Modo local (sem servidor)**: não há videochamada. O app avisa que ela depende do servidor (antes existia um link público calculável do Jitsi, removido por não ser seguro).
 
 ## Onde o recurso aparece (site x APK)
 | Versão | Vídeo e prontuário | Condição |

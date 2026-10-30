@@ -88,6 +88,10 @@ jobs:
             sed -i 's#<application#<uses-permission android:name="android.permission.INTERNET"/>\n    <application#' "$MANIFEST"
           fi
           sed -i 's#android:label="[^"]*"#android:label="Mente Saudável"#' "$MANIFEST"
+          # Dados de saúde no aparelho: sem backup do Android (adb backup / nuvem do Google) e sem HTTP em texto puro.
+          if ! grep -q "android:allowBackup" "$MANIFEST"; then
+            sed -i 's#<application#<application android:allowBackup="false" android:fullBackupContent="false" android:usesCleartextTraffic="false"#' "$MANIFEST"
+          fi
 
       - name: Baixar dependências
         run: flutter pub get

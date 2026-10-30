@@ -4,7 +4,6 @@ import 'package:mente_saudavel/app/dependencias.dart';
 import 'package:mente_saudavel/domain/repositories/sessao_repository.dart';
 import 'package:mente_saudavel/models/sessao.dart';
 import 'package:mente_saudavel/utils/app_exception.dart';
-import 'package:mente_saudavel/services/seguranca.dart';
 import 'package:mente_saudavel/services/video_service.dart';
 import 'package:mente_saudavel/utils/build_flags.dart';
 import 'package:mente_saudavel/utils/formatters.dart';
@@ -172,13 +171,6 @@ class _SessaoSheetState extends State<_SessaoSheet> {
     }
   }
 
-  /// SÓ no modo local (sem servidor): link derivado do id da sessão. NÃO é seguro (qualquer pessoa que conheça
-  /// o esquema consegue calcular a sala); por isso o modo servidor usa [_entrarNaVideo].
-  String get _linkVideo {
-    final sala = Seguranca.hashSenha('sessao-${_sessao.id}', 'mente-saudavel').substring(0, 16);
-    return 'https://meet.jit.si/MenteSaudavel-$sala';
-  }
-
   String get _linkMapa =>
       'https://www.google.com/maps/search/?api=1&query=${Uri.encodeQueryComponent(_sessao.profissionalEndereco ?? '')}';
 
@@ -275,8 +267,13 @@ class _SessaoSheetState extends State<_SessaoSheet> {
                 ),
               ),
             if (s.agendada && s.modalidade == Modalidade.online && !usaServidor)
-              _botaoLink(Icons.videocam, 'Copiar link da videochamada', _linkVideo,
-                  'Link copiado. Cole no navegador na hora da sessão.'),
+              Padding(
+                padding: const EdgeInsets.only(top: 4),
+                child: Text(
+                  'A videochamada precisa do servidor da clínica, que ainda não está configurado neste aplicativo.',
+                  style: TextStyle(color: Colors.grey.shade700, fontSize: 13),
+                ),
+              ),
             if (!profissional &&
                 s.agendada &&
                 s.modalidade == Modalidade.presencial &&

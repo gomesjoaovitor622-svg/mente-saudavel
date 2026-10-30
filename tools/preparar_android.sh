@@ -17,6 +17,8 @@ grep -qE "minSdk(Version)?[ =]+ ?23" "$gradle" || { echo "não consegui ajustar 
 main=android/app/src/main/AndroidManifest.xml
 grep -q "android.permission.INTERNET" "$main" || sed -i 's#<application#<uses-permission android:name="android.permission.INTERNET"/>\n    <application#' "$main"
 sed -i 's#android:label="[^"]*"#android:label="Mente Saudável"#' "$main"
+# Dados de saúde no aparelho: sem backup do Android (adb backup / nuvem do Google).
+grep -q "android:allowBackup" "$main" || sed -i 's#<application#<application android:allowBackup="false" android:fullBackupContent="false"#' "$main"
 # HTTP em texto puro: no manifesto de DEBUG (não vai para o release) ou, com --cleartext, no principal.
 alvo=android/app/src/debug/AndroidManifest.xml
 [[ $cleartext == 1 ]] && alvo="$main"
