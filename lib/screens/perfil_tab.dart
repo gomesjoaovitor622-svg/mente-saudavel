@@ -316,8 +316,9 @@ class _PerfilTabState extends ConsumerState<PerfilTab> {
               label: const Text('Alterar senha'),
             ),
             const SizedBox(height: 8),
-            // O inspetor lê o SQLite LOCAL; com servidor ele não mostra os dados reais.
-            if (!usaServidor) ...[
+            // Ferramenta de DESENVOLVIMENTO: lê o SQLite local inteiro (inclui hashes de senha) e aceita SELECT livre.
+            // Por isso só existe em build de demonstração, nunca no app entregue a usuários.
+            if (kMostrarInspetorDeBanco) ...[
               OutlinedButton.icon(
                 onPressed: () => Navigator.push(
                   context,
