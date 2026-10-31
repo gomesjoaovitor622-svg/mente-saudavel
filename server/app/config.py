@@ -41,6 +41,7 @@ class Settings:
     video_depois_min: int = 120  # e fecha tantos minutos depois do horário
 
     # Fuso da clínica: todos os horários do sistema são "horário de parede" nele (veja app/tempo.py).
+    max_body_bytes: int = 1_000_000  # corpo máximo de uma requisição (o maior texto legítimo, um prontuário, tem ~80 KB)
     app_tz: str = "America/Sao_Paulo"
     # E-mail (SMTP). Sem SMTP_HOST e SMTP_FROM o envio fica desligado: sem recuperação de senha nem verificação de e-mail.
     smtp_host: str = ""
@@ -129,6 +130,7 @@ def load_settings() -> Settings:
         video_app_secret=os.environ.get("VIDEO_APP_SECRET", ""),
         video_antes_min=int(os.environ.get("VIDEO_ANTES_MIN", "15")),
         video_depois_min=int(os.environ.get("VIDEO_DEPOIS_MIN", "120")),
+        max_body_bytes=int(os.environ.get("MAX_BODY_BYTES", "1000000")),
         app_tz=app_tz,
         smtp_host=smtp_host,
         smtp_port=int(os.environ.get("SMTP_PORT", "587")),

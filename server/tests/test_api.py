@@ -740,7 +740,12 @@ def test_listagem_de_sessoes_respeita_o_limite(client):
     assert client.get("/sessoes", headers=pac["h"], params={"limite": 0}).status_code == 422
 
 
-def test_historico_financeiro_agrupa_meses_e_bate_com_o_mensal(client):
+def test_historico_financeiro_agrupa_meses_e_bate_com_o_mensal(client, monkeypatch):
+    # Relógio fixo no meio do mês: nos 2 últimos dias do mês, "daqui a 48 h" cai no mês seguinte (fora do histórico)
+    # e o teste falharia só por causa da data em que roda.
+    from datetime import datetime as _dt
+
+    monkeypatch.setattr(tempo, "agora", lambda: _dt(2031, 3, 10, 8, 0))
     pro = cadastrar(client, "pro-hist@x.com", "profissional")
     client.patch("/auth/eu", headers=pro["h"], json={"nome": "Dra Hist", "valor_sessao_centavos": 10000})
     pac = cadastrar(client, "pac-hist@x.com")

@@ -13,6 +13,14 @@ StatusSessao = Literal["agendada", "concluida", "cancelada"]
 class _Base(BaseModel):
     model_config = ConfigDict(extra="forbid", str_strip_whitespace=True)
 
+    @field_validator("*", mode="after")
+    @classmethod
+    def _sem_caractere_nulo(cls, valor: object) -> object:
+        """NUL (\\x00) em texto derruba o PostgreSQL com erro 500; aqui vira 422 já na entrada."""
+        if isinstance(valor, str) and "\x00" in valor:
+            raise ValueError("O texto contém um caractere inválido.")
+        return valor
+
 
 class CadastroIn(_Base):
     nome: str = Field(min_length=2, max_length=120)

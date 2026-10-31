@@ -22,7 +22,9 @@ class ResultadoSincronizacao {
 ///  * Falta de internet: PARA a rodada e mantém tudo na fila (tenta de novo no próximo ciclo).
 ///  * Sucesso: remove o item. Conflito (409): marca `conflito` e segue para o próximo.
 ///  * Recusa 4xx (dados inválidos, sem permissão): marca `falhou`, sem insistir.
-///  * Erro 5xx: tenta de novo nos próximos ciclos, até [maxTentativas]; depois marca `falhou`.
+///  * Erro 5xx: tenta de novo nos próximos ciclos, até [maxTentativas]; depois marca `falhou`. Enquanto o servidor
+///    erra, a rodada PARA (preserva a ordem da fila e não bombardeia um servidor que está se recuperando).
+///  * Item que nem consegue ser montado (dado corrompido na fila): marca `falhou` e segue; não trava os outros.
 ///  * 401 (sessão expirada): para sem mexer na fila; o envio continua depois do novo login.
 ///  * Uma rodada por vez (nunca duas ao mesmo tempo).
 class SincronizadorOutbox {
@@ -30,7 +32,7 @@ class SincronizadorOutbox {
     required this.outbox,
     required this.remoto,
     required this.usuarioId,
-    this.maxTentativas = 8,
+    this.maxTentativas = 20, // ~10 min de tolerância a uma queda do servidor (ciclo de 30 s)
   });
 
   final OutboxRepository outbox;
@@ -85,7 +87,20 @@ class SincronizadorOutbox {
             falhas++;
           } else {
             await outbox.marcar(item.id, EstadoOutbox.pendente, erro: e.mensagem, contarTentativa: true);
+            break; // servidor instável: tenta de novo no próximo ciclo, na mesma ordem
           }
+        } on FormatException catch (e) {
+          // Payload corrompido ou fora do formato (data inválida): tentar de novo nunca vai funcionar.
+          // Sem isso o item ficaria pendente para sempre, travando todos os seguintes.
+          await outbox.marcar(item.id, EstadoOutbox.falhou, erro: 'Item inválido na fila (${e.message}).', contarTentativa: true);
+          falhas++;
+        } on TypeError catch (e) {
+          await outbox.marcar(item.id, EstadoOutbox.falhou, erro: 'Item inválido na fila (campo ausente: $e).', contarTentativa: true);
+          falhas++;
+        } catch (e) {
+          // Erro inesperado (não é do item): NÃO descarta a ação do usuário; conta a tentativa e para a rodada.
+          await outbox.marcar(item.id, EstadoOutbox.pendente, erro: 'Erro inesperado: $e', contarTentativa: true);
+          break;
         }
       }
     } finally {

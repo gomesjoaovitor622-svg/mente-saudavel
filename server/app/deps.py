@@ -4,17 +4,14 @@ import re
 import time
 from collections import defaultdict, deque
 from collections.abc import Iterator
-from datetime import datetime
-from typing import Annotated, Any
+from typing import Annotated
 
 from fastapi import Depends, HTTPException, Request, Response
-from sqlalchemy import func, select
-from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from app.config import Settings
 from app.db import session_iter
-from app.models import Sessao, Usuario
+from app.models import Usuario
 from app.security import criar_token, ler_token_com_versao
 
 COOKIE_SESSAO = "ms_sessao"
@@ -80,48 +77,3 @@ def emitir_token(cfg: Settings, user: Usuario, response: Response) -> str:
     token = criar_token(user.id, cfg.jwt_secret, cfg.jwt_ttl_hours, user.token_versao)
     response.set_cookie(COOKIE_SESSAO, token, max_age=cfg.jwt_ttl_hours * 3600, httponly=True, secure=cfg.cookie_secure, samesite="strict", path="/")
     return token
-
-
-def exigir_perfil(user: Usuario, perfil: str) -> None:
-    if user.perfil != perfil:
-        raise HTTPException(403, "Ação não permitida para o seu perfil.")
-
-
-def carregar_sessao(db: Session, sessao_id: int, user: Usuario) -> Sessao:
-    s = db.get(Sessao, sessao_id)
-    # 404 (e não 403) para não revelar a existência de sessões de outras pessoas.
-    if s is None or user.id not in (s.paciente_id, s.profissional_id):
-        raise HTTPException(404, "Sessão não encontrada.")
-    return s
-
-
-def mensagem_conflito(db: Session, prof_id: int, pac_id: int, quando: datetime, ignorar: int) -> str | None:
-    def existe(coluna: Any, valor: int) -> bool:
-        q = select(func.count()).select_from(Sessao).where(coluna == valor, Sessao.data_hora == quando, Sessao.status != "cancelada", Sessao.id != ignorar)
-        return (db.scalar(q) or 0) > 0
-
-    if existe(Sessao.profissional_id, prof_id):
-        return "O profissional já tem uma sessão neste horário."
-    if existe(Sessao.paciente_id, pac_id):
-        return "Você já tem uma sessão neste horário."
-    return None
-
-
-def gravar_sessao(db: Session, prof_id: int, pac_id: int, quando: datetime, ignorar: int, chave: str | None = None) -> Sessao | None:
-    """Confirma a gravação. Se o banco recusar por horário duplicado (corrida entre 2 requisições), responde 409.
-
-    Se a recusa foi da CHAVE DE IDEMPOTÊNCIA (o mesmo agendamento chegou duas vezes ao mesmo tempo),
-    devolve a sessão que já existe em vez de erro."""
-    try:
-        db.commit()
-    except IntegrityError as e:
-        db.rollback()
-        texto = str(e.orig).lower()
-        if "unique" not in texto and "duplicate" not in texto:
-            raise
-        if chave:
-            existente = db.scalar(select(Sessao).where(Sessao.paciente_id == pac_id, Sessao.chave_idempotencia == chave))
-            if existente is not None:
-                return existente
-        raise HTTPException(409, mensagem_conflito(db, prof_id, pac_id, quando, ignorar) or "Este horário acabou de ser ocupado. Escolha outro.") from None
-    return None
