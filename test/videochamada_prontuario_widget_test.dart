@@ -1,6 +1,7 @@
 import 'dart:convert';
 
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:http/http.dart' as http;
@@ -168,10 +169,17 @@ void main() {
     testWidgets('navegador não abriu: avisa que o link foi copiado', (t) async {
       servidor((_) => _json(200, {'url': 'https://video.exemplo.com/ms-abc?jwt=tok', 'sala': 'ms-abc', 'moderador': false, 'expira_em': '2031-01-10T12:00:00'}));
       VideoService.abrir = (_) async => false;
+      String? copiado;
+      t.binding.defaultBinaryMessenger.setMockMethodCallHandler(SystemChannels.platform, (call) async {
+        if (call.method == 'Clipboard.setData') copiado = (call.arguments as Map)['text'] as String?;
+        return null;
+      });
+      addTearDown(() => t.binding.defaultBinaryMessenger.setMockMethodCallHandler(SystemChannels.platform, null));
       await abrirPainel(t, _sessao(), servidor: true);
       await t.tap(find.text('Entrar na videochamada'));
       await t.pumpAndSettle();
       expect(find.textContaining('Link copiado'), findsOneWidget);
+      expect(copiado, 'https://video.exemplo.com/ms-abc?jwt=tok'); // o link com token foi para a área de transferência
     });
   });
 
