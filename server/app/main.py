@@ -13,7 +13,6 @@ from fastapi.responses import JSONResponse
 from sqlalchemy import Engine
 from sqlalchemy.orm import Session, sessionmaker
 
-from app import prontuario as prontuario_api
 from app import tempo
 from app import video as video_api
 from app.config import Settings, load_settings
@@ -128,12 +127,11 @@ def create_app(settings: Settings | None = None, engine: Engine | None = None, m
 
     app.state.aprovar = _aprovar_por_id
 
-    ctx = Contexto(cfg, log, metricas, conta, limite, limite_cadastro, LimiteLogin(cfg.telemetry_max_per_minute))
+    cofre = Cofre(cfg.prontuario_chaves or ((CHAVE_DEV,) if cfg.is_dev else ()))
+    ctx = Contexto(cfg, log, metricas, conta, cofre, limite, limite_cadastro, LimiteLogin(cfg.telemetry_max_per_minute))
     for modulo in (operacao, auth, agenda, profissional, humor):
         app.include_router(modulo.criar_rotas(ctx))
 
-    cofre = Cofre(cfg.prontuario_chaves or ((CHAVE_DEV,) if cfg.is_dev else ()))
-    prontuario_api.registrar_rotas(app, get_db, usuario_atual, cofre, log)
     video_api.registrar_rotas(app, cfg, get_db, usuario_atual, log)
 
     if cfg.demo_seed:
