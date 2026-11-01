@@ -42,6 +42,10 @@ class FakeSessaoRepository extends Fake implements SessaoRepository {
   Future<int> concluidasDoPaciente(int pacienteId) async =>
       sessoes.where((s) => s.pacienteId == pacienteId && s.status == StatusSessao.concluida).length;
 
+  @override
+  Future<List<Sessao>> doProfissionalComPaciente(int profissionalId, int pacienteId) async =>
+      sessoes.where((s) => s.profissionalId == profissionalId && s.pacienteId == pacienteId).toList();
+
   // Painel do profissional.
   @override
   Future<int> atendimentosHoje(int profissionalId) async => sessoes.length;
