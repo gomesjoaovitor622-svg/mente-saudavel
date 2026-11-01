@@ -11,12 +11,24 @@ import 'package:mente_saudavel/presentation/providers/prontuario_providers.dart'
 import 'package:mente_saudavel/screens/profissional/paciente_detalhe_screen.dart';
 import 'package:mente_saudavel/services/api_client.dart';
 import 'package:mente_saudavel/services/auth_service.dart';
+import 'package:mente_saudavel/services/token_store.dart';
 import 'package:mente_saudavel/services/video_service.dart';
 import 'package:mente_saudavel/widgets/componentes.dart' show SessaoCard;
 import 'package:mente_saudavel/widgets/sessao_sheet.dart';
 
 import 'helpers/fakes.dart';
 import 'prontuario_test.dart' show FakeProntuarioApi;
+
+/// Armazenamento de token em memória: o seguro de verdade usa canal de plataforma, que não existe nos testes.
+class _TokenMemoria implements TokenStore {
+  String? valor = 'token-de-teste';
+  @override
+  Future<String?> ler() async => valor;
+  @override
+  Future<void> gravar(String token) async => valor = token;
+  @override
+  Future<void> apagar() async => valor = null;
+}
 
 http.Response _json(int status, Object corpo) =>
     http.Response.bytes(utf8.encode(jsonEncode(corpo)), status, headers: {'content-type': 'application/json; charset=utf-8'});
@@ -61,6 +73,8 @@ void main() {
   setUp(() {
     recebidas = [];
     abertas = [];
+    ApiClient.usaCookie = false;
+    ApiClient.armazenamento = _TokenMemoria();
     Dependencias.configurar(Dependencias(sessoes: FakeSessaoRepository([])));
     AuthService.atual.value = profissionalDeTeste(id: 99);
     VideoService.abrir = (url) async {
@@ -69,7 +83,8 @@ void main() {
     };
   });
 
-  tearDown(() {
+  tearDown(() async {
+    await ApiClient.limparToken();
     ApiClient.cliente = http.Client();
     AuthService.atual.value = null;
     VideoService.abrir = (url) async => true;
