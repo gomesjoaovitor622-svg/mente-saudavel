@@ -69,8 +69,8 @@ class Sessao(Base):
     valor_centavos: Mapped[int] = mapped_column(Integer, default=0, server_default="0")  # preço combinado na hora do agendamento
     criado_em: Mapped[datetime] = mapped_column(DateTime, default=_now)
 
-    paciente: Mapped[Usuario] = relationship(foreign_keys=[paciente_id])
-    profissional: Mapped[Usuario] = relationship(foreign_keys=[profissional_id])
+    paciente: Mapped[Usuario] = relationship(foreign_keys=[paciente_id], lazy="joined")
+    profissional: Mapped[Usuario] = relationship(foreign_keys=[profissional_id], lazy="joined")
 
 
 class Humor(Base):
@@ -103,7 +103,7 @@ class Avaliacao(Base):
     comentario: Mapped[str] = mapped_column(Text, default="")
     criado_em: Mapped[datetime] = mapped_column(DateTime, default=_now)
 
-    paciente: Mapped[Usuario] = relationship(foreign_keys=[paciente_id])
+    paciente: Mapped[Usuario] = relationship(foreign_keys=[paciente_id], lazy="joined")
 
 
 _TIPOS_PRONTUARIO = "tipo IN ('evolucao','anamnese','plano','observacao')"

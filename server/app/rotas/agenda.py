@@ -6,11 +6,13 @@ from typing import Annotated, Any
 from fastapi import APIRouter, Header, HTTPException, Query, Response
 from sqlalchemy import func, select
 
-from app import schemas, tempo
+from app import schemas
 from app.contexto import Contexto
-from app.deps import CHAVE_IDEMPOTENCIA, Db, Eu, carregar_sessao, exigir_perfil, gravar_sessao, mensagem_conflito
+from app.deps import CHAVE_IDEMPOTENCIA, Db, Eu
+from app.erros import exigir_perfil
 from app.models import Avaliacao, Sessao, Usuario
 from app.saidas import avaliacao_out, sessao_out
+from app.servicos import agenda as svc
 
 
 def criar_rotas(ctx: Contexto) -> APIRouter:
@@ -91,7 +93,7 @@ def criar_rotas(ctx: Contexto) -> APIRouter:
     @router.get("/sessoes/conflito")
     def conflito(user: Eu, db: Db, profissional_id: int, data_hora: datetime, ignorar_id: int = -1) -> dict[str, str | None]:
         pac_id = user.id if user.perfil == "paciente" else -1
-        return {"mensagem": mensagem_conflito(db, profissional_id, pac_id, data_hora, ignorar_id)}
+        return {"mensagem": svc.mensagem_conflito(db, profissional_id, pac_id, data_hora, ignorar_id)}
 
     @router.post("/sessoes", status_code=201)
     def criar_sessao(
@@ -101,103 +103,34 @@ def criar_rotas(ctx: Contexto) -> APIRouter:
         response: Response,
         chave: Annotated[str | None, Header(alias="Idempotency-Key")] = None,
     ) -> dict[str, Any]:
-        exigir_perfil(user, "paciente")
         if chave is not None and not CHAVE_IDEMPOTENCIA.fullmatch(chave):
             raise HTTPException(422, "Idempotency-Key inválida (8 a 64 letras, números, '-' ou '_').")
-        if chave:
-            # Reenvio do mesmo agendamento (ex.: o app estava offline e tentou de novo): devolve o que já existe.
-            existente = db.scalar(select(Sessao).where(Sessao.paciente_id == user.id, Sessao.chave_idempotencia == chave))
-            if existente is not None:
-                response.status_code = 200
-                return sessao_out(existente, ver_anotacoes=False)
-        if cfg.email_ativo and user.email_verificado_em is None:
-            raise HTTPException(403, "Confirme seu e-mail antes de agendar uma sessão.")
-        prof = db.get(Usuario, body.profissional_id)
-        if prof is None or prof.perfil != "profissional" or prof.verificado_em is None:  # só profissional aprovado recebe agendamentos
-            raise HTTPException(404, "Profissional não encontrado.")
-        if body.data_hora <= tempo.agora():
-            raise HTTPException(422, "Escolha um horário no futuro.")
-        msg = mensagem_conflito(db, prof.id, user.id, body.data_hora, -1)
-        if msg:
-            if chave:
-                # Corrida com o próprio reenvio: o 1º envio acabou de gravar. Não é conflito, é a mesma sessão.
-                db.rollback()
-                existente = db.scalar(select(Sessao).where(Sessao.paciente_id == user.id, Sessao.chave_idempotencia == chave))
-                if existente is not None:
-                    response.status_code = 200
-                    return sessao_out(existente, ver_anotacoes=False)
-            raise HTTPException(409, msg)
-        s = Sessao(
-            paciente_id=user.id,
-            profissional_id=prof.id,
-            data_hora=body.data_hora,
-            modalidade=body.modalidade,
-            valor_centavos=prof.valor_sessao_centavos or 0,  # congela o preço da hora do agendamento
-            chave_idempotencia=chave,
-        )
-        db.add(s)
-        ja_existia = gravar_sessao(db, prof.id, user.id, body.data_hora, -1, chave)
-        if ja_existia is not None:
-            response.status_code = 200
-            return sessao_out(ja_existia, ver_anotacoes=False)
-        return sessao_out(s, ver_anotacoes=False)
+        r = svc.agendar(db, user, body, chave, exigir_email_confirmado=cfg.email_ativo)
+        if not r.criada:
+            response.status_code = 200  # mesmo agendamento reenviado: devolve o que já existe
+        return sessao_out(r.sessao, ver_anotacoes=False)
 
     @router.patch("/sessoes/{sessao_id}")
     def alterar_sessao(sessao_id: int, body: schemas.SessaoPatch, user: Eu, db: Db) -> dict[str, Any]:
-        s = carregar_sessao(db, sessao_id, user)
-        souprof = user.perfil == "profissional"
-        if body.anotacoes is not None:
-            if not souprof:
-                raise HTTPException(403, "Somente o profissional edita as anotações.")
-            s.anotacoes = body.anotacoes
-        if body.status is not None:
-            permitido = {"concluida", "cancelada"} if souprof else {"cancelada"}
-            if body.status not in permitido or s.status != "agendada":
-                raise HTTPException(409, "Mudança de status não permitida.")
-            s.status = body.status
-        if body.data_hora is not None:
-            if souprof:
-                raise HTTPException(403, "Somente o paciente remarca a sessão.")
-            if s.status == "cancelada" or body.data_hora <= tempo.agora():
-                raise HTTPException(422, "Escolha um horário no futuro para uma sessão ativa.")
-            msg = mensagem_conflito(db, s.profissional_id, s.paciente_id, body.data_hora, s.id)
-            if msg:
-                raise HTTPException(409, msg)
-            s.data_hora = body.data_hora
-            s.status = "agendada"
-        gravar_sessao(db, s.profissional_id, s.paciente_id, s.data_hora, s.id)
-        return sessao_out(s, ver_anotacoes=souprof)
+        s = svc.alterar(db, svc.carregar_sessao(db, sessao_id, user), user, body)
+        return sessao_out(s, ver_anotacoes=user.perfil == "profissional")
 
     @router.delete("/sessoes/{sessao_id}", status_code=204)
     def excluir_sessao(sessao_id: int, user: Eu, db: Db) -> Response:
-        s = carregar_sessao(db, sessao_id, user)
-        if s.status == "agendada":
-            raise HTTPException(409, "Cancele a sessão antes de excluí-la do histórico.")
-        db.delete(s)
-        db.commit()
+        svc.excluir(db, svc.carregar_sessao(db, sessao_id, user))
         return Response(status_code=204)
 
     # --------------------------------------------------------------- avaliação
     @router.get("/sessoes/{sessao_id}/avaliacao")
     def ver_avaliacao(sessao_id: int, user: Eu, db: Db) -> dict[str, Any] | None:
-        s = carregar_sessao(db, sessao_id, user)
+        s = svc.carregar_sessao(db, sessao_id, user)
         a = db.scalar(select(Avaliacao).where(Avaliacao.sessao_id == s.id))
         return avaliacao_out(a, True) if a else None
 
     @router.put("/sessoes/{sessao_id}/avaliacao")
     def avaliar(sessao_id: int, body: schemas.AvaliacaoIn, user: Eu, db: Db) -> dict[str, Any]:
         exigir_perfil(user, "paciente")
-        s = carregar_sessao(db, sessao_id, user)
-        if s.status != "concluida":
-            raise HTTPException(409, "Só é possível avaliar sessões concluídas.")
-        a = db.scalar(select(Avaliacao).where(Avaliacao.sessao_id == s.id))
-        if a is None:
-            a = Avaliacao(sessao_id=s.id, paciente_id=user.id, profissional_id=s.profissional_id, nota=body.nota)
-            db.add(a)
-        a.nota = body.nota
-        a.comentario = body.comentario
-        a.criado_em = tempo.agora().replace(microsecond=0)
-        db.commit()
+        a = svc.avaliar(db, user, svc.carregar_sessao(db, sessao_id, user), body)
         return avaliacao_out(a, True)
 
     return router

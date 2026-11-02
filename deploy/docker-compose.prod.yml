@@ -62,6 +62,13 @@ services:
       CORS_ORIGINS: https://${DOMAIN:?defina DOMAIN no .env}
       DEMO_SEED: ${DEMO_SEED:-false}
       METRICS_TOKEN: ${METRICS_TOKEN:-}
+      MAX_BODY_BYTES: ${MAX_BODY_BYTES:-1000000}
+      LOG_LEVEL: ${LOG_LEVEL:-INFO}
+      JWT_TTL_HOURS: ${JWT_TTL_HOURS:-168}
+      PASSWORD_MIN: ${PASSWORD_MIN:-8}
+      SIGNUP_MAX_ATTEMPTS: ${SIGNUP_MAX_ATTEMPTS:-10}
+      TELEMETRY_MAX_PER_MINUTE: ${TELEMETRY_MAX_PER_MINUTE:-30}
+      CODIGO_VALIDADE_MIN: ${CODIGO_VALIDADE_MIN:-15}
       TZ: ${TZ:-America/Sao_Paulo}
       # Fuso dos horários das sessões (todos veem o horário de Brasília, independente do servidor).
       APP_TZ: ${APP_TZ:-America/Sao_Paulo}

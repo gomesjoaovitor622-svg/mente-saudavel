@@ -7,12 +7,12 @@ from collections.abc import Callable
 from typing import Any
 
 from fastapi import FastAPI, Request, Response
+from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from sqlalchemy import Engine
 from sqlalchemy.orm import Session, sessionmaker
 
-from app import prontuario as prontuario_api
 from app import tempo
 from app import video as video_api
 from app.config import Settings, load_settings
@@ -23,6 +23,7 @@ from app.cripto import CHAVE_DEV, Cofre
 from app.db import Base, garantir_colunas, garantir_indices, make_engine, make_session_factory
 from app.deps import LimiteLogin, get_db, usuario_atual
 from app.emailer import Mailer, NenhumMailer, SmtpMailer
+from app.erros import ErroDeNegocio
 from app.migracoes import exigir_banco_migrado
 from app.models import Usuario
 from app.observabilidade import REQUEST_ID_RE, Metricas, configurar_logs
@@ -70,9 +71,23 @@ def create_app(settings: Settings | None = None, engine: Engine | None = None, m
     log = configurar_logs(cfg.log_level)
     metricas = Metricas()
 
+    @app.exception_handler(RequestValidationError)
+    async def _erro_de_validacao(_request: Request, exc: RequestValidationError) -> JSONResponse:
+        # O padrão do FastAPI devolve também o valor recebido ("input"): numa senha ou num texto de prontuário
+        # isso repetiria o dado sensível na resposta. Aqui só vão o campo, o tipo e a mensagem.
+        itens = [{"loc": list(e.get("loc", ())), "msg": e.get("msg", ""), "type": e.get("type", "")} for e in exc.errors()]
+        return JSONResponse({"detail": itens}, status_code=422)
+
+    @app.exception_handler(ErroDeNegocio)
+    async def _erro_de_negocio(_request: Request, exc: ErroDeNegocio) -> JSONResponse:
+        return JSONResponse({"detail": exc.mensagem}, status_code=exc.status)
+
     @app.middleware("http")
     async def _observar(request: Request, call_next: Callable[..., Any]) -> Response:
         """Cabeçalhos de segurança + id da requisição + 1 linha de log JSON + métricas (sem dados pessoais)."""
+        tamanho = request.headers.get("content-length", "")
+        if tamanho.isdigit() and int(tamanho) > cfg.max_body_bytes:
+            return JSONResponse({"detail": "Requisição grande demais."}, status_code=413)
         rid = request.headers.get("X-Request-ID", "")
         if not REQUEST_ID_RE.fullmatch(rid):
             rid = uuid.uuid4().hex
@@ -112,12 +127,11 @@ def create_app(settings: Settings | None = None, engine: Engine | None = None, m
 
     app.state.aprovar = _aprovar_por_id
 
-    ctx = Contexto(cfg, log, metricas, conta, limite, limite_cadastro, LimiteLogin(cfg.telemetry_max_per_minute))
+    cofre = Cofre(cfg.prontuario_chaves or ((CHAVE_DEV,) if cfg.is_dev else ()))
+    ctx = Contexto(cfg, log, metricas, conta, cofre, limite, limite_cadastro, LimiteLogin(cfg.telemetry_max_per_minute))
     for modulo in (operacao, auth, agenda, profissional, humor):
         app.include_router(modulo.criar_rotas(ctx))
 
-    cofre = Cofre(cfg.prontuario_chaves or ((CHAVE_DEV,) if cfg.is_dev else ()))
-    prontuario_api.registrar_rotas(app, get_db, usuario_atual, cofre, log)
     video_api.registrar_rotas(app, cfg, get_db, usuario_atual, log)
 
     if cfg.demo_seed:

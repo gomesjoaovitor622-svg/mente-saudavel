@@ -5,6 +5,7 @@ from dataclasses import dataclass
 
 from app.config import Settings
 from app.conta import Conta
+from app.cripto import Cofre
 from app.deps import LimiteLogin
 from app.observabilidade import Metricas
 
@@ -15,6 +16,7 @@ class Contexto:
     log: logging.Logger
     metricas: Metricas
     conta: Conta
+    cofre: Cofre  # cifra os prontuários
     limite: LimiteLogin  # login (por e-mail)
     limite_cadastro: LimiteLogin  # cadastro (por IP)
     limite_telemetria: LimiteLogin  # telemetria (por IP)

@@ -8,7 +8,8 @@ from sqlalchemy import select
 
 from app import schemas, tempo
 from app.contexto import Contexto
-from app.deps import Db, Eu, exigir_perfil
+from app.deps import Db, Eu
+from app.erros import exigir_perfil
 from app.models import Humor
 from app.saidas import humor_out
 

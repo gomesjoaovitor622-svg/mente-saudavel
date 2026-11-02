@@ -13,6 +13,14 @@ StatusSessao = Literal["agendada", "concluida", "cancelada"]
 class _Base(BaseModel):
     model_config = ConfigDict(extra="forbid", str_strip_whitespace=True)
 
+    @field_validator("*", mode="after")
+    @classmethod
+    def _sem_caractere_nulo(cls, valor: object) -> object:
+        """NUL (\\x00) em texto derruba o PostgreSQL com erro 500; aqui vira 422 já na entrada."""
+        if isinstance(valor, str) and "\x00" in valor:
+            raise ValueError("O texto contém um caractere inválido.")
+        return valor
+
 
 class CadastroIn(_Base):
     nome: str = Field(min_length=2, max_length=120)
@@ -122,3 +130,18 @@ class TelemetriaIn(_Base):
     versao_app: str | None = Field(default=None, max_length=20)
     plataforma: str | None = Field(default=None, max_length=20)
     eventos: list[EventoCliente] = Field(min_length=1, max_length=20)
+
+
+# ---------------------------------------------------------------- prontuário eletrônico
+TipoEntrada = Literal["evolucao", "anamnese", "plano", "observacao"]
+
+
+class EntradaIn(_Base):
+    tipo: TipoEntrada = "evolucao"
+    conteudo: str = Field(min_length=1, max_length=20000)
+    sessao_id: int | None = None
+
+
+class EntradaPatch(_Base):
+    conteudo: str = Field(min_length=1, max_length=20000)
+    versao_esperada: int = Field(ge=1)  # controle de concorrência: evita sobrescrever uma edição feita em outro aparelho

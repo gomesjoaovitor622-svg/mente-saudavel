@@ -193,6 +193,30 @@ void main() {
       expect(item.estado, EstadoOutbox.falhou);
     });
 
+    test('erro 5xx interrompe a rodada: o item seguinte espera (ordem preservada, servidor poupado)', () async {
+      online = false;
+      await agendar();
+      await repo.agendar(pacienteId: 1, profissionalId: 9, dataHora: quando.add(const Duration(hours: 1)), modalidade: 'Online');
+      online = true;
+      servidor = (_) => _resp(503, {'detail': 'indisponível'});
+      await sync.sincronizar();
+      expect(recebidas.where((r) => r.method == 'POST'), hasLength(1));
+      final fila = await outbox.todos(1);
+      expect(fila.map((i) => i.estado), everyElement(EstadoOutbox.pendente));
+      expect(fila.map((i) => i.tentativas).toList(), [1, 0]);
+    });
+
+    test('item corrompido na fila vira "falhou" e NÃO trava os seguintes', () async {
+      await outbox.enfileirar(1, TipoOutbox.agendar, <String, Object?>{}); // faltam os campos obrigatórios
+      online = false;
+      await agendar();
+      online = true;
+      final r = await sync.sincronizar();
+      expect([r.enviados, r.falhas], [1, 1]);
+      final fila = await outbox.todos(1);
+      expect(fila.single.estado, EstadoOutbox.falhou);
+    });
+
     test('401 (sessão expirada) para a rodada sem mexer na fila', () async {
       online = false;
       await agendar();

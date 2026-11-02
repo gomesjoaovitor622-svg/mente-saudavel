@@ -11,8 +11,9 @@ import 'package:mente_saudavel/widgets/sessao_sheet.dart';
 /// Histórico de sessões de um paciente com o profissional logado.
 class PacienteDetalheScreen extends StatefulWidget {
   final PacienteResumo paciente;
+  final bool servidor; // só os testes mudam: no app, quem decide é o build (API_URL)
 
-  const PacienteDetalheScreen({super.key, required this.paciente});
+  const PacienteDetalheScreen({super.key, required this.paciente, this.servidor = usaServidor});
 
   @override
   State<PacienteDetalheScreen> createState() => _PacienteDetalheScreenState();
@@ -49,7 +50,7 @@ class _PacienteDetalheScreenState extends State<PacienteDetalheScreen> {
   }
 
   Future<void> _abrir(Sessao sessao) async {
-    final mudou = await mostrarSessaoSheet(context, sessao: sessao, comoProfissional: true);
+    final mudou = await mostrarSessaoSheet(context, sessao: sessao, comoProfissional: true, servidor: widget.servidor);
     if (mudou) _carregar();
   }
 
@@ -61,7 +62,7 @@ class _PacienteDetalheScreenState extends State<PacienteDetalheScreen> {
         title: Text(p.nome),
         actions: [
           // O prontuário (cifrado, com histórico) só existe no modo servidor.
-          if (usaServidor)
+          if (widget.servidor)
             IconButton(
               icon: const Icon(Icons.assignment_outlined),
               tooltip: 'Prontuário',

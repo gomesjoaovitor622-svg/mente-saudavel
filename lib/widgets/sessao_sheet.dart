@@ -15,12 +15,13 @@ Future<bool> mostrarSessaoSheet(
   BuildContext context, {
   required Sessao sessao,
   required bool comoProfissional,
+  bool servidor = usaServidor, // só os testes mudam: no app, quem decide é o build (API_URL)
 }) async {
   final resultado = await showModalBottomSheet<bool>(
     context: context,
     isScrollControlled: true,
     showDragHandle: true,
-    builder: (_) => _SessaoSheet(sessao: sessao, comoProfissional: comoProfissional),
+    builder: (_) => _SessaoSheet(sessao: sessao, comoProfissional: comoProfissional, servidor: servidor),
   );
   return resultado == true;
 }
@@ -28,8 +29,9 @@ Future<bool> mostrarSessaoSheet(
 class _SessaoSheet extends StatefulWidget {
   final Sessao sessao;
   final bool comoProfissional;
+  final bool servidor;
 
-  const _SessaoSheet({required this.sessao, required this.comoProfissional});
+  const _SessaoSheet({required this.sessao, required this.comoProfissional, required this.servidor});
 
   @override
   State<_SessaoSheet> createState() => _SessaoSheetState();
@@ -257,7 +259,7 @@ class _SessaoSheetState extends State<_SessaoSheet> {
                 endereco.isNotEmpty)
               _linha(Icons.map_outlined, endereco),
             if (s.valorCentavos > 0) _linha(Icons.payments_outlined, formatarReais(s.valorCentavos)),
-            if (s.agendada && s.modalidade == Modalidade.online && usaServidor && !s.pendente && s.id != null)
+            if (s.agendada && s.modalidade == Modalidade.online && widget.servidor && !s.pendente && s.id != null)
               Padding(
                 padding: const EdgeInsets.only(top: 4),
                 child: FilledButton.icon(
@@ -266,7 +268,7 @@ class _SessaoSheetState extends State<_SessaoSheet> {
                   label: const Text('Entrar na videochamada'),
                 ),
               ),
-            if (s.agendada && s.modalidade == Modalidade.online && !usaServidor)
+            if (s.agendada && s.modalidade == Modalidade.online && !widget.servidor)
               Padding(
                 padding: const EdgeInsets.only(top: 4),
                 child: Text(
