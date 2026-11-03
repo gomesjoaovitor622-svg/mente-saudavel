@@ -22,6 +22,7 @@ from sqlalchemy.orm import Session
 
 from app import tempo
 from app.config import Settings
+from app.deps import ip_do_cliente
 from app.emailer import Mailer, enviar_sem_vazar
 from app.models import CodigoEmail, Usuario
 from app.schemas import _Base
@@ -115,8 +116,8 @@ def registrar_rotas(
     limite_email: Any,
     limite_usuario: Any,
 ) -> None:
-    Db = Annotated[Session, Depends(get_db)]  # noqa: N806
-    Eu = Annotated[Usuario, Depends(usuario_atual)]  # noqa: N806
+    Db = Annotated[Session, Depends(get_db)]
+    Eu = Annotated[Usuario, Depends(usuario_atual)]
 
     def exigir_email() -> None:
         if not cfg.email_ativo:
@@ -126,7 +127,7 @@ def registrar_rotas(
     def esqueci_senha(body: EsqueciIn, request: Request, db: Db, background: BackgroundTasks) -> Response:
         exigir_email()
         email = body.email.lower()
-        limite_ip.checar(request.client.host if request.client else "?")
+        limite_ip.checar(ip_do_cliente(request))
         limite_email.checar(email)
         user = db.scalar(select(Usuario).where(Usuario.email == email))
         if user is not None and user.anonimizado_em is None:
@@ -138,7 +139,7 @@ def registrar_rotas(
     @app.post("/auth/senha/redefinir", status_code=204)
     def redefinir_senha(body: RedefinirIn, request: Request, db: Db) -> Response:
         exigir_email()
-        limite_ip.checar(request.client.host if request.client else "?")
+        limite_ip.checar(ip_do_cliente(request))
         if len(body.nova_senha) < cfg.password_min:
             raise HTTPException(422, f"A senha deve ter pelo menos {cfg.password_min} caracteres.")
         user = db.scalar(select(Usuario).where(Usuario.email == body.email.lower()))

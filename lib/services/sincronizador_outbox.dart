@@ -130,6 +130,18 @@ class SincronizadorOutbox {
     }
   }
 
+  /// Retransmissão manual: devolve à fila os itens que FALHARAM (4xx definitivo ou 20 tentativas esgotadas)
+  /// e já tenta enviar. Com [idItem] reenvia só aquele. Nada é perdido em silêncio: o item fica visível na
+  /// tela de pendências até ser enviado ou descartado pela pessoa. Se falhar de novo, volta a `falhou`.
+  Future<ResultadoSincronizacao> reenviar({int? idItem}) async {
+    final dono = usuarioId();
+    if (dono == null) return const ResultadoSincronizacao();
+    final reativados = await outbox.reativarFalhas(dono, id: idItem);
+    notificar();
+    if (reativados == 0) return const ResultadoSincronizacao();
+    return sincronizar();
+  }
+
   /// Descarta um item (ex.: o conflito que a pessoa decidiu abandonar).
   Future<void> descartar(int idItem) async {
     await outbox.remover(idItem);

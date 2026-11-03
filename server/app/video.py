@@ -47,8 +47,8 @@ def token_jitsi(cfg: Settings, sala: str, nome: str, moderador: bool, expira_em:
 
 
 def registrar_rotas(app: FastAPI, cfg: Settings, get_db: Callable[..., Any], usuario_atual: Callable[..., Usuario], log: logging.Logger) -> None:
-    Db = Annotated[Session, Depends(get_db)]  # noqa: N806
-    Eu = Annotated[Usuario, Depends(usuario_atual)]  # noqa: N806
+    Db = Annotated[Session, Depends(get_db)]
+    Eu = Annotated[Usuario, Depends(usuario_atual)]
 
     @app.get("/sessoes/{sessao_id}/video")
     def entrar_na_video(sessao_id: int, user: Eu, db: Db) -> dict[str, Any]:

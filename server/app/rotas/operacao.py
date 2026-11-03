@@ -9,7 +9,7 @@ from sqlalchemy import select
 
 from app import schemas, tempo
 from app.contexto import Contexto
-from app.deps import Db
+from app.deps import Db, ip_do_cliente
 from app.observabilidade import limpar_texto_cliente
 
 
@@ -36,7 +36,7 @@ def criar_rotas(ctx: Contexto) -> APIRouter:
     def receber_telemetria(body: schemas.TelemetriaIn, request: Request) -> Response:
         """Erros e tempos medidos pelo app, gravados como logs JSON. Aberto (o erro pode ocorrer antes do
         login), por isso tem limite por IP, tamanho máximo e remove e-mails dos textos."""
-        limite_telemetria.checar(request.client.host if request.client else "?")
+        limite_telemetria.checar(ip_do_cliente(request))
         for e in body.eventos:
             log.info(
                 "evento_cliente",

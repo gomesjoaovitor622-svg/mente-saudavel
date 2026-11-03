@@ -46,6 +46,11 @@ class ItemOutbox {
 
   bool get pendente => estado == EstadoOutbox.pendente;
 
+  /// Recusado de forma definitiva ou com as tentativas esgotadas: só volta à fila se a PESSOA mandar.
+  bool get falhou => estado == EstadoOutbox.falhou;
+
+  bool get emConflito => estado == EstadoOutbox.conflito;
+
   static ItemOutbox fromMap(Map<String, Object?> m) => ItemOutbox(
         id: m['id']! as int,
         usuarioId: m['usuario_id']! as int,
@@ -106,6 +111,18 @@ class OutboxRepository {
     await db.rawUpdate(
       'UPDATE outbox SET estado = ?, ultimo_erro = ?, tentativas = tentativas + ? WHERE id = ?',
       [estado, erro, contarTentativa ? 1 : 0, id],
+    );
+  }
+
+  /// Devolve à fila um item que falhou: volta a `pendente` com o contador zerado, mantendo a MESMA chave
+  /// de idempotência (reenviar nunca cria a sessão duas vezes). Só mexe em item `falhou` do próprio
+  /// [usuarioId]: um `conflito` precisa de decisão da pessoa e um `pendente` já está na fila.
+  /// Devolve quantos itens foram reativados.
+  Future<int> reativarFalhas(int usuarioId, {int? id}) async {
+    final db = await _abrir();
+    return db.rawUpdate(
+      'UPDATE outbox SET estado = ?, tentativas = 0, ultimo_erro = NULL WHERE usuario_id = ? AND estado = ?${id == null ? '' : ' AND id = ?'}',
+      [EstadoOutbox.pendente, usuarioId, EstadoOutbox.falhou, if (id != null) id],
     );
   }
 
