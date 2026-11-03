@@ -12,8 +12,19 @@ import 'package:mente_saudavel/screens/pendencias_screen.dart';
 import 'package:mente_saudavel/services/api_client.dart';
 import 'package:mente_saudavel/services/auth_service.dart';
 import 'package:mente_saudavel/services/sincronizador_outbox.dart';
+import 'package:mente_saudavel/services/token_store.dart';
 
 import 'helpers/fakes.dart';
+
+/// Token em memória: o armazenamento seguro de verdade usa canal de plataforma, que trava em `testWidgets`.
+class _TokenMemoria implements TokenStore {
+  @override
+  Future<String?> ler() async => 'token-de-teste';
+  @override
+  Future<void> gravar(String token) async {}
+  @override
+  Future<void> apagar() async {}
+}
 
 /// Fila em memória: a tela é testada sem SQLite (o repositório de verdade já tem teste próprio).
 class _OutboxMemoria extends OutboxRepository {
@@ -66,6 +77,8 @@ void main() {
   setUp(() {
     AuthService.atual.value = pacienteDeTeste();
     servidor = () => http.Response(jsonEncode({'id': 9}), 201, headers: {'content-type': 'application/json; charset=utf-8'});
+    ApiClient.usaCookie = false;
+    ApiClient.armazenamento = _TokenMemoria();
     ApiClient.cliente = MockClient((_) async => servidor());
   });
 
