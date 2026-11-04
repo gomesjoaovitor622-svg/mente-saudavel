@@ -2,7 +2,7 @@
 -c requirements.txt
 pytest-cov>=6,<8
 ruff>=0.17.1
-mypy>=1.13
+mypy>=2.4.1
 bandit>=1.8
 types-requests
 types-PyYAML
