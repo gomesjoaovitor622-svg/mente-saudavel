@@ -427,9 +427,9 @@ pygments==2.21.0 \
     #   -c requirements.txt
     #   pytest
     #   rich
-pytest==9.1.1 \
-    --hash=sha256:1088fbde8f2b49d95a549a195707afa7a76a3ce9bcadc26b6d71f0ffda5fe313 \
-    --hash=sha256:37a86b45efb9a47a61a36449063e8e18d0cab3161329fc099eb21783169c4f0c
+pytest==9.2.0 \
+    --hash=sha256:07acdcf88ec174f907dc01af70bf52d49b014bbab03faeeade31c96b18c2e588 \
+    --hash=sha256:97c4f3b1f3c7414aa36465e09b8220f1d03627993bd51b1282e193753c80557b
     # via
     #   -c requirements.txt
     #   pytest-cov
@@ -696,7 +696,7 @@ types-requests==2.33.0.20261006 \
     --hash=sha256:0652999e9306aea345f40732d58fa49a7f6cade6a0d74d92119c5c8d82eddaf0 \
     --hash=sha256:26cc8146505cab33cda9737991929e4144c559bebe05078ccc6998f27c4ca2c1
     # via -r requirements-quality.in
-typing-extensions==4.16.0 ; python_full_version < "3.13" \
+typing-extensions==4.16.0 \
     --hash=sha256:481caa481374e813c1b176ada14e97f1f67a4539ce9cfeb3f350d78d6370c2e8 \
     --hash=sha256:dc983d19a509c94dba722ee6abd33940f7c05a89e243c47e907eb4db6f1a43e5
     # via
