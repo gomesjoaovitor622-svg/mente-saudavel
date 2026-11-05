@@ -16,6 +16,9 @@ class HumorRegistro {
     required this.dataHora,
   });
 
+  /// Ainda na fila offline (id negativo = `-idDoItem`): será enviado quando a internet voltar.
+  bool get pendente => (id ?? 0) < 0;
+
   String get emoji => emojis[nivel - 1];
   String get rotulo => rotulos[nivel - 1];
 

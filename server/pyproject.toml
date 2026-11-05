@@ -3,11 +3,30 @@ line-length = 170
 target-version = "py311"
 
 [tool.ruff.lint]
-select = ["E", "F", "I", "B", "S", "UP"]
+select = ["E", "F", "I", "B", "S", "UP", "SIM", "RUF", "C4", "PT", "DTZ", "RET", "PERF", "PIE", "BLE"]
 ignore = ["S101", "S105", "S106"]
 
 [tool.ruff.lint.per-file-ignores]
-"tests/*" = ["S", "E501"]
+"tests/*" = ["S", "E501", "DTZ"]
+# Fixtures reutilizadas de outro módulo de teste (importar o fixture é o jeito de compartilhá-lo).
+"tests/test_video_jwt.py" = ["F401", "F811"]
+"tests/test_prontuario_fluxo.py" = ["F401", "F811"]
+"tests/test_jornada_e_observabilidade.py" = ["F401", "F811"]
+# O relógio da clínica é deliberadamente "naive" em America/Sao_Paulo (ver app/tempo.py): nada de tzinfo.
+"app/servicos/financeiro.py" = ["DTZ001"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+
+[tool.mypy]
+python_version = "3.12"
+ignore_missing_imports = true
+strict = true  # inclui disallow_untyped_defs, warn_unused_ignores, warn_redundant_casts, no_implicit_optional...
+
+[tool.coverage.run]
+source = ["app"]
+omit = ["app/migrations/*"]
+
+[tool.coverage.report]
+show_missing = true
+skip_empty = true

@@ -247,6 +247,88 @@ void main() {
     });
   });
 
+  group('retransmissão manual (itens com falha)', () {
+    Future<void> esgotarTentativas() async {
+      online = false;
+      await agendar();
+      online = true;
+      servidor = (_) => _resp(500, {'detail': 'erro'});
+      await sync.sincronizar();
+      await sync.sincronizar(); // maxTentativas: 2 -> falhou
+      expect((await outbox.todos(1)).single.estado, EstadoOutbox.falhou);
+    }
+
+    test('tentativas esgotadas: o item FICA na fila como "falhou" (nada se perde em silêncio)', () async {
+      await esgotarTentativas();
+      final item = (await outbox.todos(1)).single;
+      expect(item.falhou, isTrue);
+      expect(item.tentativas, 2);
+      expect(item.ultimoErro, isNotEmpty);
+    });
+
+    test('reenviar: volta a pendente com contador zerado, usa a MESMA chave e esvazia a fila', () async {
+      await esgotarTentativas();
+      final chave = (await outbox.todos(1)).single.chave;
+      recebidas.clear();
+
+      servidor = (req) => req.method == 'POST' ? _resp(201, {'id': 88}) : _resp(200, <Object>[]);
+      final r = await sync.reenviar();
+
+      expect(r.enviados, 1);
+      expect(await outbox.todos(1), isEmpty);
+      expect(recebidas.where((q) => q.method == 'POST').single.headers['Idempotency-Key'], chave);
+    });
+
+    test('reenviar com o servidor ainda fora do ar: o item volta a ser visível como pendente, sem perda', () async {
+      await esgotarTentativas();
+      await sync.reenviar(); // servidor continua respondendo 500
+      final item = (await outbox.todos(1)).single;
+      expect([item.estado, item.tentativas], [EstadoOutbox.pendente, 1]);
+    });
+
+    test('reenviar sem internet não perde nada e avisa que não há conexão', () async {
+      await esgotarTentativas();
+      online = false;
+      final r = await sync.reenviar();
+      expect(r.semConexao, isTrue);
+      final item = (await outbox.todos(1)).single;
+      expect(item.estado, EstadoOutbox.pendente);
+    });
+
+    test('reenviar um item específico não mexe nos outros que falharam', () async {
+      final a = await outbox.enfileirar(1, TipoOutbox.status, {'id': 1, 'status': 'cancelada'});
+      final b = await outbox.enfileirar(1, TipoOutbox.status, {'id': 2, 'status': 'cancelada'});
+      await outbox.marcar(a.id, EstadoOutbox.falhou, erro: 'x', contarTentativa: true);
+      await outbox.marcar(b.id, EstadoOutbox.falhou, erro: 'y', contarTentativa: true);
+
+      expect(await outbox.reativarFalhas(1, id: a.id), 1);
+      final fila = {for (final i in await outbox.todos(1)) i.id: i.estado};
+      expect(fila, {a.id: EstadoOutbox.pendente, b.id: EstadoOutbox.falhou});
+    });
+
+    test('conflito NÃO é reenviado automaticamente (precisa de decisão da pessoa) e a fila de outro usuário é intocada', () async {
+      final c = await outbox.enfileirar(1, TipoOutbox.status, {'id': 1, 'status': 'cancelada'});
+      await outbox.marcar(c.id, EstadoOutbox.conflito, erro: 'horário ocupado');
+      final outro = await outbox.enfileirar(2, TipoOutbox.status, {'id': 2, 'status': 'cancelada'});
+      await outbox.marcar(outro.id, EstadoOutbox.falhou, erro: 'z');
+
+      expect(await outbox.reativarFalhas(1), 0);
+      expect((await outbox.todos(1)).single.estado, EstadoOutbox.conflito);
+      expect((await outbox.todos(2)).single.estado, EstadoOutbox.falhou);
+    });
+
+    test('reenviar avisa quem escuta (a tela de pendências recarrega) e sem usuário logado não faz nada', () async {
+      await esgotarTentativas();
+      final antes = sync.versao.value;
+      await sync.reenviar();
+      expect(sync.versao.value, greaterThan(antes));
+
+      final semDono = SincronizadorOutbox(outbox: outbox, remoto: SessaoRepositoryRemoto(), usuarioId: () => null);
+      final r = await semDono.reenviar();
+      expect([r.enviados, r.falhas, r.conflitos], [0, 0, 0]);
+    });
+  });
+
   test('a fila de uma pessoa não aparece para outra', () async {
     await outbox.enfileirar(1, TipoOutbox.status, {'id': 1, 'status': 'cancelada'});
     await outbox.enfileirar(2, TipoOutbox.status, {'id': 2, 'status': 'cancelada'});

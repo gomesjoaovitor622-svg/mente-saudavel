@@ -5,7 +5,7 @@ sem prontuário, sem aprovação de profissional e sem e-mail. Por isso o passo 
 
 ## Pré-requisitos (uma vez)
 1. O servidor está no ar em HTTPS (`docs/LANCAMENTO-CHECKLIST.md`, item 5) e `https://SEU-DOMINIO/api/health` responde `{"status":"ok"}`.
-2. (Recomendado) chave de assinatura própria. Sem ela, cada build usa uma assinatura de teste e o Android recusa atualizar por cima:
+2. **Obrigatório para release:** chave de assinatura própria. O workflow **falha** (`release=true` ou tag `v*.*.*`) se qualquer um dos 4 segredos `ANDROID_KEYSTORE_*`/`ANDROID_KEY_*` faltar; só builds de teste (sem release) saem com assinatura de teste, que o Android recusa atualizar por cima:
    ```bash
    keytool -genkeypair -v -keystore mente.jks -alias mente -keyalg RSA -keysize 4096 -validity 10000
    base64 -w0 mente.jks > mente.jks.b64      # macOS: base64 -i mente.jks | tr -d '\n'

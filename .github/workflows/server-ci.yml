@@ -51,8 +51,8 @@ jobs:
           ruff format --check app tests
           mypy app --ignore-missing-imports
 
-      - name: Testes em SQLite
-        run: python -m pytest -q
+      - name: Testes em SQLite (com gate de cobertura)
+        run: python -m pytest -q --cov=app --cov-report=term-missing --cov-fail-under=85
 
       - name: Testes em PostgreSQL
         env:

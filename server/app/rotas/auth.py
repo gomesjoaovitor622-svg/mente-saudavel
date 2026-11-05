@@ -8,7 +8,7 @@ from sqlalchemy.exc import IntegrityError
 
 from app import schemas, tempo
 from app.contexto import Contexto
-from app.deps import COOKIE_SESSAO, Db, Eu, emitir_token
+from app.deps import COOKIE_SESSAO, Db, Eu, emitir_token, ip_do_cliente, usuario_atual
 from app.models import Avaliacao, Humor, ProntuarioEntrada, Sessao, Usuario
 from app.saidas import avaliacao_out, humor_out, sessao_out, usuario_out
 from app.security import HASH_FALSO, hash_senha, verificar_senha
@@ -29,7 +29,7 @@ def criar_rotas(ctx: Contexto) -> APIRouter:
 
     @router.post("/auth/cadastro", status_code=201)
     def cadastro(body: schemas.CadastroIn, request: Request, response: Response, db: Db, background: BackgroundTasks) -> dict[str, Any]:
-        limite_cadastro.checar(request.client.host if request.client else "?")
+        limite_cadastro.checar(ip_do_cliente(request))
         if len(body.senha) < cfg.password_min:
             raise HTTPException(422, f"A senha deve ter pelo menos {cfg.password_min} caracteres.")
         if body.perfil == "profissional" and not (body.registro or "").strip():
@@ -59,7 +59,7 @@ def criar_rotas(ctx: Contexto) -> APIRouter:
     @router.post("/auth/entrar")
     def entrar(body: schemas.EntrarIn, request: Request, response: Response, db: Db) -> dict[str, Any]:
         email = body.email.lower()
-        chave = f"{request.client.host if request.client else '?'}|{email}"
+        chave = f"{ip_do_cliente(request)}|{email}"
         limite.checar(chave)
         user = db.scalar(select(Usuario).where(Usuario.email == email))
         # Sempre faz um scrypt, exista o e-mail ou não (evita revelar contas pelo tempo).
@@ -70,8 +70,20 @@ def criar_rotas(ctx: Contexto) -> APIRouter:
         return emitir(user, response)
 
     @router.post("/auth/sair", status_code=204)
-    def sair() -> Response:
-        """Encerra a sessão web: apaga o cookie (só o servidor consegue, porque ele é HttpOnly)."""
+    def sair(request: Request, db: Db) -> Response:
+        """Encerra a sessão em TODOS os aparelhos (web e celular) e apaga o cookie neste navegador.
+
+        Sobe `token_versao`: qualquer token emitido antes (inclusive o Bearer do app, que o servidor não
+        consegue apagar) passa a dar 401. Sem sessão válida não há o que revogar: o cookie é apagado mesmo
+        assim, então o logout nunca falha para quem só quer sair (e um site de fora não consegue deslogar ninguém).
+        """
+        try:
+            user = usuario_atual(request, db)
+        except HTTPException:
+            pass  # sem sessão válida (expirada, ou cookie sem o cabeçalho anti-CSRF): só limpa o cookie
+        else:
+            user.token_versao += 1
+            db.commit()
         resp = Response(status_code=204)
         resp.delete_cookie(COOKIE_SESSAO, path="/", httponly=True, secure=cfg.cookie_secure, samesite="strict")
         return resp

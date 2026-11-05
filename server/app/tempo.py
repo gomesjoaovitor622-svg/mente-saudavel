@@ -15,7 +15,7 @@ _fuso = ZoneInfo(FUSO_PADRAO)
 
 
 def definir_fuso(nome: str) -> None:
-    global _fuso  # noqa: PLW0603
+    global _fuso
     _fuso = ZoneInfo(nome)
 
 

@@ -19,7 +19,7 @@ from tests.conftest import cadastrar, futuro
 SEGREDO = "texto-clinico-muito-sigiloso"
 
 
-@pytest.fixture()
+@pytest.fixture
 def ambiente() -> Iterator[tuple[TestClient, Engine]]:
     engine = create_engine("sqlite://", connect_args={"check_same_thread": False}, poolclass=StaticPool)
 
@@ -50,10 +50,13 @@ def test_registro_fica_cifrado_no_banco_e_volta_legivel_pela_api(ambiente):
     client, engine = ambiente
     pro, pac = _vinculo(client)
     r = _novo(client, pro, pac, tipo="evolucao", sessao_id=pro["sessao_id"])
-    assert r.status_code == 201 and r.json()["conteudo"] == SEGREDO and r.json()["versao"] == 1
+    assert r.status_code == 201
+    assert r.json()["conteudo"] == SEGREDO
+    assert r.json()["versao"] == 1
     with engine.connect() as c:
         bruto = c.execute(text("SELECT conteudo_cifrado FROM prontuario_entradas")).scalar_one()
-    assert SEGREDO not in bruto and bruto.startswith("gAAAA")  # texto cifrado (Fernet), nunca o original
+    assert SEGREDO not in bruto
+    assert bruto.startswith("gAAAA")
     lista = client.get(f"/profissional/pacientes/{pac['id']}/prontuario", headers=pro["h"]).json()
     assert [e["conteudo"] for e in lista] == [SEGREDO]
 
@@ -98,7 +101,9 @@ def test_edicao_guarda_a_versao_anterior_e_exige_versao_esperada(ambiente):
     pro, pac = _vinculo(client)
     e = _novo(client, pro, pac, conteudo="primeira").json()
     ok = client.patch(f"/profissional/prontuario/{e['id']}", headers=pro["h"], json={"conteudo": "segunda", "versao_esperada": 1})
-    assert ok.status_code == 200 and ok.json()["versao"] == 2 and ok.json()["conteudo"] == "segunda"
+    assert ok.status_code == 200
+    assert ok.json()["versao"] == 2
+    assert ok.json()["conteudo"] == "segunda"
     # edição "velha" (outro aparelho ainda na versão 1) não sobrescreve
     velha = client.patch(f"/profissional/prontuario/{e['id']}", headers=pro["h"], json={"conteudo": "terceira", "versao_esperada": 1})
     assert velha.status_code == 409
@@ -157,7 +162,9 @@ def test_chave_errada_da_erro_claro_sem_vazar(ambiente):
     with engine.begin() as c:
         c.execute(text("UPDATE prontuario_entradas SET conteudo_cifrado = :t"), {"t": Cofre([Fernet.generate_key().decode()]).cifrar("outro")})
     r = client.get(f"/profissional/pacientes/{pac['id']}/prontuario", headers=pro["h"])
-    assert r.status_code == 500 and SEGREDO not in r.text and "outro" not in r.text
+    assert r.status_code == 500
+    assert SEGREDO not in r.text
+    assert "outro" not in r.text
 
 
 def test_cofre_rotacao_de_chaves():
@@ -169,7 +176,7 @@ def test_cofre_rotacao_de_chaves():
     assert Cofre([nova]).decifrar(recifrado) == "dado"  # agora só a chave nova basta
     with pytest.raises(ProntuarioIlegivel):
         Cofre([Fernet.generate_key().decode()]).decifrar(velho)
-    with pytest.raises(ValueError):
+    with pytest.raises(ValueError, match="ao menos uma chave"):
         Cofre([])
 
 
