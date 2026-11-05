@@ -45,6 +45,7 @@ _COLUNAS_NOVAS: tuple[tuple[str, str, str], ...] = (
     ("usuarios", "token_versao", "INTEGER NOT NULL DEFAULT 0"),
     ("usuarios", "verificado_em", "TIMESTAMP"),
     ("usuarios", "email_verificado_em", "TIMESTAMP"),
+    ("humor_registros", "chave_idempotencia", "VARCHAR(64)"),
 )
 
 
@@ -74,6 +75,7 @@ _INDICES_UNICOS: tuple[tuple[str, str, str], ...] = (
     ("uq_sessao_prof_horario", "sessoes (profissional_id, data_hora)", "status <> 'cancelada'"),
     ("uq_sessao_pac_horario", "sessoes (paciente_id, data_hora)", "status <> 'cancelada'"),
     ("uq_sessao_idempotencia", "sessoes (paciente_id, chave_idempotencia)", "chave_idempotencia IS NOT NULL"),
+    ("uq_humor_idempotencia", "humor_registros (usuario_id, chave_idempotencia)", "chave_idempotencia IS NOT NULL"),
 )
 
 
@@ -86,9 +88,10 @@ def garantir_indices(engine: Engine) -> list[str]:
     from sqlalchemy.exc import SQLAlchemyError
 
     falhas: list[str] = []
-    if "sessoes" not in inspect(engine).get_table_names():
-        return falhas
+    tabelas = set(inspect(engine).get_table_names())
     for nome, alvo, filtro in _INDICES_UNICOS:
+        if alvo.split()[0] not in tabelas:
+            continue
         try:
             with engine.begin() as conn:
                 conn.execute(text(f"CREATE UNIQUE INDEX IF NOT EXISTS {nome} ON {alvo} WHERE {filtro}"))

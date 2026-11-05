@@ -17,6 +17,8 @@ class PendenciasScreen extends ConsumerWidget {
   static String descricao(ItemOutbox i) => switch (i.tipo) {
         TipoOutbox.agendar => 'Agendamento',
         TipoOutbox.remarcar => 'Remarcação',
+        TipoOutbox.humor => 'Registro de humor',
+        TipoOutbox.perfil => 'Atualização de cadastro',
         _ => 'Alteração de sessão',
       };
 

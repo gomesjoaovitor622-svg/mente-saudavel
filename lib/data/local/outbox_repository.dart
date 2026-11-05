@@ -9,6 +9,8 @@ class TipoOutbox {
   static const String agendar = 'agendar';
   static const String status = 'status';
   static const String remarcar = 'remarcar';
+  static const String humor = 'humor'; // registro do diário de humor
+  static const String perfil = 'perfil'; // atualização cadastral (nome, registro, endereço...)
 }
 
 /// Estados de um item da fila.
@@ -94,6 +96,19 @@ class OutboxRepository {
     };
     final id = await db.insert('outbox', linha);
     return ItemOutbox.fromMap({...linha, 'id': id});
+  }
+
+  /// Como [enfileirar], mas só a versão MAIS RECENTE fica: apaga antes os itens `pendente` do mesmo [tipo] da
+  /// pessoa. Serve para ações do tipo "última gravação vence" (atualização cadastral): enviar a antiga depois
+  /// da nova seria desfazer a alteração.
+  Future<ItemOutbox> enfileirarUnico(int usuarioId, String tipo, Map<String, Object?> payload) async {
+    final db = await _abrir();
+    await db.delete(
+      'outbox',
+      where: 'usuario_id = ? AND tipo = ? AND estado = ?',
+      whereArgs: [usuarioId, tipo, EstadoOutbox.pendente],
+    );
+    return enfileirar(usuarioId, tipo, payload);
   }
 
   /// Todos os itens da pessoa (qualquer estado), do mais antigo para o mais novo.

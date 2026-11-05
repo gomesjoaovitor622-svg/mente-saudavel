@@ -4,13 +4,16 @@ import hmac
 from typing import Any
 
 from fastapi import APIRouter, HTTPException, Request, Response
-from fastapi.responses import PlainTextResponse
+from fastapi.responses import JSONResponse, PlainTextResponse
 from sqlalchemy import select
 
 from app import schemas, tempo
 from app.contexto import Contexto
 from app.deps import Db, ip_do_cliente
 from app.observabilidade import limpar_texto_cliente
+from app.saude import verificar_prontidao
+
+_PLATAFORMAS = frozenset({"android", "ios", "web"})
 
 
 def criar_rotas(ctx: Contexto) -> APIRouter:
@@ -26,6 +29,12 @@ def criar_rotas(ctx: Contexto) -> APIRouter:
         db.execute(select(1))
         return {"status": "ok"}
 
+    @router.get("/health/ready")
+    def prontidao(db: Db) -> JSONResponse:
+        """Readiness: 200 se o banco responde (e, em produção, está na versão do esquema); 503 caso contrário."""
+        ok, corpo = verificar_prontidao(db, cfg, metricas, log)
+        return JSONResponse(corpo, status_code=200 if ok else 503)
+
     @router.get("/config")
     def configuracao() -> dict[str, Any]:
         """Informações públicas para o app (sem segredos): fuso dos horários e recursos ligados."""
@@ -37,7 +46,15 @@ def criar_rotas(ctx: Contexto) -> APIRouter:
         """Erros e tempos medidos pelo app, gravados como logs JSON. Aberto (o erro pode ocorrer antes do
         login), por isso tem limite por IP, tamanho máximo e remove e-mails dos textos."""
         limite_telemetria.checar(ip_do_cliente(request))
+        plataforma = body.plataforma if body.plataforma in _PLATAFORMAS else "outra"
         for e in body.eventos:
+            # Só rótulos de conjunto fechado (tipo vem de um Literal; plataforma da lista acima): nada de texto livre.
+            metricas.contar("ms_cliente_eventos_total", tipo=e.tipo, plataforma=plataforma)
+            if e.tipo == "rede" and e.duracao_ms is not None:
+                metricas.contar("ms_cliente_rede_duracao_ms_sum", e.duracao_ms, plataforma=plataforma)
+                metricas.contar("ms_cliente_rede_duracao_ms_count", plataforma=plataforma)
+                if e.status is not None and e.status >= 500:
+                    metricas.contar("ms_cliente_rede_erros_5xx_total", plataforma=plataforma)
             log.info(
                 "evento_cliente",
                 extra={

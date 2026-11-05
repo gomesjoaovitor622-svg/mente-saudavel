@@ -2,6 +2,7 @@ import 'dart:async';
 
 import 'package:flutter/foundation.dart';
 import 'package:mente_saudavel/data/local/outbox_repository.dart';
+import 'package:mente_saudavel/data/remote/humor_perfil_remoto.dart';
 import 'package:mente_saudavel/data/remote/sessao_repository_remoto.dart';
 import 'package:mente_saudavel/utils/app_exception.dart';
 
@@ -33,10 +34,15 @@ class SincronizadorOutbox {
     required this.remoto,
     required this.usuarioId,
     this.maxTentativas = 20, // ~10 min de tolerância a uma queda do servidor (ciclo de 30 s)
-  });
+    HumorRemoto? humor,
+    PerfilRemoto? perfil,
+  })  : humor = humor ?? HumorRemoto(),
+        perfil = perfil ?? PerfilRemoto();
 
   final OutboxRepository outbox;
   final SessaoRepositoryRemoto remoto;
+  final HumorRemoto humor;
+  final PerfilRemoto perfil;
   final int? Function() usuarioId;
   final int maxTentativas;
 
@@ -125,6 +131,15 @@ class SincronizadorOutbox {
         await remoto.atualizarStatus(p['id']! as int, p['status']! as String);
       case TipoOutbox.remarcar:
         await remoto.remarcar(p['id']! as int, DateTime.parse(p['data_hora']! as String));
+      case TipoOutbox.humor:
+        await humor.registrar(
+          nivel: p['nivel']! as int,
+          nota: (p['nota'] as String?) ?? '',
+          dataHora: DateTime.parse(p['data_hora']! as String),
+          chaveIdempotencia: item.chave,
+        );
+      case TipoOutbox.perfil:
+        await perfil.atualizar(Map<String, Object?>.from(p));
       default:
         throw AppException('Tipo de ação desconhecido: ${item.tipo}', statusHttp: 400);
     }
