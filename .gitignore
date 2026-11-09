@@ -16,3 +16,8 @@ deploy/backups/
 env/*.json
 !env/*.json.example
 logs-locais/
+
+# cobertura de testes (gerada localmente)
+.coverage
+.coverage.*
+htmlcov/

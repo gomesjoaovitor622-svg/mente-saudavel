@@ -19,13 +19,15 @@ def test_cadastro_login_e_token(client):
     u = cadastrar(client, "ana@x.com")
     assert client.get("/auth/eu", headers=u["h"]).json()["email"] == "ana@x.com"
     r = client.post("/auth/entrar", json={"email": "ANA@x.com", "senha": "senha-forte-1"})
-    assert r.status_code == 200 and r.json()["token"]
+    assert r.status_code == 200
+    assert r.json()["token"]
 
 
 def test_senha_nunca_vaza(client):
     u = cadastrar(client, "ana@x.com")
     texto = client.get("/auth/eu", headers=u["h"]).text + client.post("/auth/entrar", json={"email": "ana@x.com", "senha": "senha-forte-1"}).text
-    assert "senha" not in texto and "scrypt" not in texto
+    assert "senha" not in texto
+    assert "scrypt" not in texto
 
 
 def test_cadastro_validacoes(client):
@@ -47,7 +49,8 @@ def test_login_errado_e_limite(client):
 
 def test_login_email_inexistente_mesma_mensagem(client):
     r = client.post("/auth/entrar", json={"email": "nao@x.com", "senha": "qualquer"})
-    assert r.status_code == 401 and r.json()["detail"] == "E-mail ou senha incorretos."
+    assert r.status_code == 401
+    assert r.json()["detail"] == "E-mail ou senha incorretos."
 
 
 def test_sem_token_e_token_invalido(client):
@@ -80,15 +83,18 @@ def test_fluxo_sessao_completo(client):
     # profissional conclui e anota; paciente avalia
     assert client.patch(f"/sessoes/{sid}", headers=pro["h"], json={"status": "concluida", "anotacoes": "privado"}).status_code == 200
     vista = client.get("/sessoes", headers=pac["h"]).json()[0]
-    assert vista["status"] == "concluida" and vista["anotacoes"] is None  # anotações NUNCA vão ao paciente
+    assert vista["status"] == "concluida"
+    assert vista["anotacoes"] is None
     assert client.get("/sessoes", headers=pro["h"]).json()[0]["anotacoes"] == "privado"
     assert client.put(f"/sessoes/{sid}/avaliacao", headers=pac["h"], json={"nota": 4, "comentario": "ótimo"}).status_code == 200
     assert client.put(f"/sessoes/{sid}/avaliacao", headers=pac["h"], json={"nota": 5, "comentario": "melhor"}).json()["nota"] == 5
     lista = client.get("/profissionais", headers=pac["h"]).json()
-    assert lista[0]["media"] == 5.0 and lista[0]["total"] == 1
+    assert lista[0]["media"] == 5.0
+    assert lista[0]["total"] == 1
     assert client.get(f"/profissionais/{pro['id']}/avaliacoes", headers=pac["h"]).json()[0]["comentario"] == "melhor"
     pacientes = client.get("/profissional/pacientes", headers=pro["h"]).json()
-    assert pacientes[0]["total"] == 1 and pacientes[0]["concluidas"] == 1
+    assert pacientes[0]["total"] == 1
+    assert pacientes[0]["concluidas"] == 1
 
 
 def test_isolamento_entre_usuarios(client):
@@ -128,7 +134,8 @@ def test_remarcar(client):
     pro = cadastrar(client, "pro@x.com", "profissional")
     sid = client.post("/sessoes", headers=pac["h"], json={"profissional_id": pro["id"], "data_hora": futuro(48, 10), "modalidade": "Online"}).json()["id"]
     r = client.patch(f"/sessoes/{sid}", headers=pac["h"], json={"data_hora": futuro(72, 15)})
-    assert r.status_code == 200 and r.json()["data_hora"].endswith("15:00:00")
+    assert r.status_code == 200
+    assert r.json()["data_hora"].endswith("15:00:00")
     assert client.patch(f"/sessoes/{sid}", headers=pro["h"], json={"data_hora": futuro(96)}).status_code == 403
 
 
@@ -145,7 +152,8 @@ def test_busca_profissionais(client):
     cadastrar(client, "p2@x.com", "profissional", especialidade="Terapia de casal")
     assert len(client.get("/profissionais", headers=pac["h"]).json()) == 2
     achou = client.get("/profissionais", headers=pac["h"], params={"q": "infantil"}).json()
-    assert len(achou) == 1 and "email" not in achou[0]
+    assert len(achou) == 1
+    assert "email" not in achou[0]
 
 
 def test_perfil_senha_e_exclusao(client):
@@ -172,7 +180,8 @@ def test_exclusao_de_conta_apaga_em_cascata(client):
 
 def test_cabecalhos_de_seguranca(client):
     h = client.get("/health").headers
-    assert h["x-content-type-options"] == "nosniff" and h["cache-control"] == "no-store"
+    assert h["x-content-type-options"] == "nosniff"
+    assert h["cache-control"] == "no-store"
 
 
 def test_cadastro_tem_limite_por_ip():
@@ -201,11 +210,16 @@ def test_exportar_meus_dados_paciente_nao_traz_anotacoes_do_profissional(client)
     meus = client.get("/auth/eu/exportar", headers=pac["h"])
     assert meus.status_code == 200
     d = meus.json()
-    assert d["usuario"]["email"] == "p@x.com" and len(d["sessoes"]) == 1 and len(d["humor"]) == 1
-    assert "SIGILO CLINICO" not in meus.text and "senha" not in meus.text and "scrypt" not in meus.text
+    assert d["usuario"]["email"] == "p@x.com"
+    assert len(d["sessoes"]) == 1
+    assert len(d["humor"]) == 1
+    assert "SIGILO CLINICO" not in meus.text
+    assert "senha" not in meus.text
+    assert "scrypt" not in meus.text
 
     do_prof = client.get("/auth/eu/exportar", headers=prof["h"]).json()
-    assert do_prof["sessoes"][0]["anotacoes"] == "SIGILO CLINICO" and "humor" not in do_prof
+    assert do_prof["sessoes"][0]["anotacoes"] == "SIGILO CLINICO"
+    assert "humor" not in do_prof
     assert client.get("/auth/eu/exportar").status_code == 401
 
 
@@ -225,10 +239,14 @@ def test_preco_da_sessao_e_financeiro_do_profissional(client):
 
     mes = datetime.fromisoformat(s["data_hora"]).strftime("%Y-%m")
     antes = client.get(f"/profissional/financeiro?mes={mes}", headers=prof["h"]).json()
-    assert antes["a_receber_centavos"] == 20000 and antes["recebido_centavos"] == 0 and antes["sessoes_agendadas"] == 1
+    assert antes["a_receber_centavos"] == 20000
+    assert antes["recebido_centavos"] == 0
+    assert antes["sessoes_agendadas"] == 1
     client.patch(f"/sessoes/{s['id']}", headers=prof["h"], json={"status": "concluida"})
     depois = client.get(f"/profissional/financeiro?mes={mes}", headers=prof["h"]).json()
-    assert depois["recebido_centavos"] == 20000 and depois["a_receber_centavos"] == 0 and depois["sessoes_concluidas"] == 1
+    assert depois["recebido_centavos"] == 20000
+    assert depois["a_receber_centavos"] == 0
+    assert depois["sessoes_concluidas"] == 1
 
 
 def test_financeiro_so_para_profissional_e_valida_mes_e_preco(client):
@@ -385,7 +403,7 @@ def test_migracao_cria_indices_em_banco_antigo_e_avisa_duplicadas(tmp_path):
 
 
 # ---------------------------------------------------------------- sessão web: cookie HttpOnly
-@pytest.fixture()
+@pytest.fixture
 def web():
     """Cliente que guarda cookies, como um navegador (cookie_secure=False só porque o teste usa http)."""
     from sqlalchemy import create_engine
@@ -408,7 +426,10 @@ def test_cookie_de_sessao_e_httponly_samesite_strict(web):
     r = _cadastro_web(web)
     assert r.status_code == 201
     cookie = r.headers["set-cookie"].lower()
-    assert "ms_sessao=" in cookie and "httponly" in cookie and "samesite=strict" in cookie and "path=/" in cookie
+    assert "ms_sessao=" in cookie
+    assert "httponly" in cookie
+    assert "samesite=strict" in cookie
+    assert "path=/" in cookie
 
 
 def test_cookie_autentica_leitura_sem_cabecalho_authorization(web):
@@ -420,7 +441,8 @@ def test_cookie_exige_cabecalho_csrf_para_alterar_dados(web):
     _cadastro_web(web)
     assert web.patch("/auth/eu", json={"nome": "Novo"}).status_code == 403  # sem X-Requested-With
     ok = web.patch("/auth/eu", json={"nome": "Novo"}, headers={"X-Requested-With": "mente-saudavel"})
-    assert ok.status_code == 200 and ok.json()["nome"] == "Novo"
+    assert ok.status_code == 200
+    assert ok.json()["nome"] == "Novo"
 
 
 def test_sair_apaga_o_cookie(web):
@@ -449,7 +471,8 @@ def test_reenvio_com_a_mesma_chave_nao_duplica_a_sessao(client):
     pac = cadastrar(client, "pac-idem@x.com")
     a = _agendar_chave(client, pac, pro["id"], futuro(), "chave-offline-0001")
     b = _agendar_chave(client, pac, pro["id"], futuro(), "chave-offline-0001")
-    assert a.status_code == 201 and b.status_code == 200
+    assert a.status_code == 201
+    assert b.status_code == 200
     assert a.json()["id"] == b.json()["id"]
     assert len(client.get("/sessoes", headers=pac["h"]).json()) == 1
 
@@ -481,13 +504,15 @@ def test_aceite_dos_termos_fica_registrado(client):
     u = cadastrar(client, "aceite@x.com")
     assert client.get("/auth/eu", headers=u["h"]).json()["aceite_termos_versao"] is None
     r = client.post("/auth/eu/aceite", headers=u["h"], json={"versao": "2026-10"})
-    assert r.status_code == 200 and r.json()["aceite_termos_versao"] == "2026-10"
+    assert r.status_code == 200
+    assert r.json()["aceite_termos_versao"] == "2026-10"
     assert client.get("/auth/eu", headers=u["h"]).json()["aceite_termos_versao"] == "2026-10"
 
 
 def test_cadastro_pode_trazer_o_aceite(client):
     r = client.post("/auth/cadastro", json={"nome": "Com Aceite", "email": "ca@x.com", "senha": "senha-forte-1", "perfil": "paciente", "aceite_termos_versao": "2026-10"})
-    assert r.status_code == 201 and r.json()["usuario"]["aceite_termos_versao"] == "2026-10"
+    assert r.status_code == 201
+    assert r.json()["usuario"]["aceite_termos_versao"] == "2026-10"
 
 
 def _paciente_com_dados(client):
@@ -501,7 +526,7 @@ def _paciente_com_dados(client):
 
 
 def test_anonimizar_apaga_humor_e_comentario_e_bloqueia_o_acesso(client):
-    pro, pac, sid = _paciente_com_dados(client)
+    pro, pac, _sid = _paciente_com_dados(client)
     assert client.post("/auth/eu/anonimizar", headers=pac["h"], json={"senha": "errada-errada"}).status_code == 401
     assert client.post("/auth/eu/anonimizar", headers=pac["h"], json={"senha": "senha-forte-1"}).status_code == 204
 
@@ -511,9 +536,12 @@ def test_anonimizar_apaga_humor_e_comentario_e_bloqueia_o_acesso(client):
 
     # o profissional continua com o histórico, sem identificar a pessoa
     sessoes = client.get("/sessoes", headers=pro["h"]).json()
-    assert len(sessoes) == 1 and sessoes[0]["paciente_nome"] == "Paciente anonimizado"
+    assert len(sessoes) == 1
+    assert sessoes[0]["paciente_nome"] == "Paciente anonimizado"
     aval = client.get(f"/profissionais/{pro['id']}/avaliacoes", headers=pro["h"]).json()
-    assert aval and aval[0]["comentario"] == "" and aval[0]["nota"] == 5
+    assert aval
+    assert aval[0]["comentario"] == ""
+    assert aval[0]["nota"] == 5
 
     # dados pessoais sumiram do banco
     from sqlalchemy import text
@@ -521,7 +549,9 @@ def test_anonimizar_apaga_humor_e_comentario_e_bloqueia_o_acesso(client):
     with client.app.state.session_factory() as db:
         assert db.execute(text("SELECT COUNT(*) FROM humor_registros")).scalar() == 0
         email, nome = db.execute(text("SELECT email, nome FROM usuarios WHERE perfil='paciente'")).one()
-    assert email.endswith("@anonimizado.invalid") and "lgpd" not in email and nome == "Paciente anonimizado"
+    assert email.endswith("@anonimizado.invalid")
+    assert "lgpd" not in email
+    assert nome == "Paciente anonimizado"
 
 
 def test_anonimizar_cancela_sessoes_futuras_e_mantem_as_concluidas(client):
@@ -554,7 +584,8 @@ def test_toda_resposta_traz_id_e_tempo(client):
     assert r.headers["Server-Timing"].startswith("app;dur=")
     # id inválido (ex.: tentativa de injeção em log) é substituído por um gerado
     ruim = client.get("/health", headers={"X-Request-ID": "a b\tc"})
-    assert ruim.headers["X-Request-ID"] != "a b\tc" and len(ruim.headers["X-Request-ID"]) == 32
+    assert ruim.headers["X-Request-ID"] != "a b\tc"
+    assert len(ruim.headers["X-Request-ID"]) == 32
 
 
 def test_log_de_requisicao_e_json_sem_dados_pessoais(client, caplog):
@@ -568,7 +599,9 @@ def test_log_de_requisicao_e_json_sem_dados_pessoais(client, caplog):
     linhas = [json.loads(JsonFormatter().format(r)) for r in caplog.records if r.getMessage() == "requisicao"]
     assert any(x["rota"] == "/sessoes" and x["status"] == 200 and x["duracao_ms"] >= 0 for x in linhas)
     todo_o_log = json.dumps(linhas)
-    assert "segredo@x.com" not in todo_o_log and "senha-forte-1" not in todo_o_log and "agendada" not in todo_o_log
+    assert "segredo@x.com" not in todo_o_log
+    assert "senha-forte-1" not in todo_o_log
+    assert "agendada" not in todo_o_log
 
 
 def test_erro_nao_tratado_vira_500_com_codigo_e_log(client, caplog):
@@ -580,9 +613,11 @@ def test_erro_nao_tratado_vira_500_com_codigo_e_log(client, caplog):
     client.app.add_api_route("/__explode", explode)
     r = client.get("/__explode")
     assert r.status_code == 500
-    assert "falha de teste" not in r.text and r.headers["X-Request-ID"] in r.json()["detail"]
+    assert "falha de teste" not in r.text
+    assert r.headers["X-Request-ID"] in r.json()["detail"]
     registro = next(x for x in caplog.records if x.getMessage() == "erro_nao_tratado")
-    assert registro.campos["request_id"] == r.headers["X-Request-ID"] and registro.exc_info
+    assert registro.campos["request_id"] == r.headers["X-Request-ID"]
+    assert registro.exc_info
 
 
 def test_telemetria_do_app_vira_log_sem_email(client, caplog):
@@ -597,7 +632,9 @@ def test_telemetria_do_app_vira_log_sem_email(client, caplog):
     }
     assert client.post("/telemetria", json=corpo).status_code == 204
     eventos = [r.campos for r in caplog.records if r.getMessage() == "evento_cliente"]
-    assert len(eventos) == 2 and eventos[0]["mensagem"] == "falhou para [email]" and eventos[1]["duracao_ms"] == 180
+    assert len(eventos) == 2
+    assert eventos[0]["mensagem"] == "falhou para [email]"
+    assert eventos[1]["duracao_ms"] == 180
 
 
 def test_telemetria_valida_tamanho_e_tem_limite(client):
@@ -606,7 +643,8 @@ def test_telemetria_valida_tamanho_e_tem_limite(client):
     assert client.post("/telemetria", json={"eventos": [{"tipo": "erro", "nome": "x" * 81}]}).status_code == 422
     ok = {"eventos": [{"tipo": "rede", "nome": "GET /sessoes", "duracao_ms": 50, "status": 200}]}
     codigos = [client.post("/telemetria", json=ok).status_code for _ in range(35)]
-    assert codigos[0] == 204 and codigos[-1] == 429
+    assert codigos[0] == 204
+    assert codigos[-1] == 429
 
 
 def test_metricas_desligadas_por_padrao_e_protegidas_por_token(client):
@@ -637,7 +675,8 @@ def test_historico_financeiro_lista_meses_com_totais(client):
     assert client.patch(f"/sessoes/{sid}", headers=pro["h"], json={"status": "concluida"}).status_code == 200
 
     h = client.get("/profissional/financeiro/historico?meses=3", headers=pro["h"]).json()
-    assert len(h) == 3 and h[0]["mes"] > h[1]["mes"] > h[2]["mes"]  # do mais recente para o mais antigo
+    assert len(h) == 3
+    assert h[0]["mes"] > h[1]["mes"] > h[2]["mes"]
     # A sessão é daqui a 48 h: pode cair neste mês ou no próximo. Confere o total no mês dela.
     mes_da_sessao = futuro()[:7]
     unico = client.get(f"/profissional/financeiro?mes={mes_da_sessao}", headers=pro["h"]).json()
@@ -677,7 +716,8 @@ def test_mesmo_agendamento_reenviado_em_paralelo_cria_so_uma_sessao(client):
     quando = futuro()
     with ThreadPoolExecutor(max_workers=6) as ex:
         codigos = list(ex.map(lambda _: _agendar_chave(client, pac, pro["id"], quando, "chave-reenvio-paralelo").status_code, range(6)))
-    assert set(codigos) <= {200, 201} and codigos.count(201) == 1, codigos
+    assert set(codigos) <= {200, 201}, codigos
+    assert codigos.count(201) == 1, codigos
     assert len(client.get("/sessoes", headers=pac["h"]).json()) == 1
 
 
@@ -694,6 +734,52 @@ def test_trocar_a_senha_revoga_os_tokens_antigos_e_mantem_o_novo(client):
     assert client.get("/auth/eu", headers={"Authorization": f"Bearer {t}"}).status_code == 200
 
 
+def test_sair_revoga_o_token_em_todos_os_aparelhos(client):
+    """Regressão: "Sair" antes só apagava o cookie; o Bearer do celular continuava valendo por dias."""
+    pac = cadastrar(client, "pac-sair@x.com")
+    outro = client.post("/auth/entrar", json={"email": "pac-sair@x.com", "senha": "senha-forte-1"}).json()["token"]
+    assert client.get("/auth/eu", headers=pac["h"]).status_code == 200
+    assert client.post("/auth/sair", headers=pac["h"]).status_code == 204
+    assert client.get("/auth/eu", headers=pac["h"]).status_code == 401  # token usado no logout
+    assert client.get("/auth/eu", headers={"Authorization": f"Bearer {outro}"}).status_code == 401  # outro aparelho
+    novo = client.post("/auth/entrar", json={"email": "pac-sair@x.com", "senha": "senha-forte-1"}).json()["token"]
+    assert client.get("/auth/eu", headers={"Authorization": f"Bearer {novo}"}).status_code == 200  # entrar de novo funciona
+
+
+def test_sair_com_sessao_expirada_ou_sem_sessao_nao_falha(client):
+    assert client.post("/auth/sair").status_code == 204
+    assert client.post("/auth/sair", headers={"Authorization": "Bearer lixo"}).status_code == 204
+
+
+def test_sair_pelo_site_revoga_e_cookie_sem_csrf_nao_revoga(web):
+    token_a = _cadastro_web(web).json()["token"]
+    # Cookie sem o cabeçalho anti-CSRF: só limpa o cookie, não derruba nenhum aparelho.
+    assert web.post("/auth/sair").status_code == 204
+    assert web.get("/auth/eu", headers={"Authorization": f"Bearer {token_a}"}).status_code == 200
+    web.post("/auth/entrar", json={"email": "web@x.com", "senha": "senha-forte-1"})  # cookie de volta
+    assert web.post("/auth/sair", headers={"X-Requested-With": "mente-saudavel"}).status_code == 204
+    assert web.get("/auth/eu", headers={"Authorization": f"Bearer {token_a}"}).status_code == 401
+
+
+def test_ip_do_cliente_usa_chave_fixa_quando_nao_ha_cliente():
+    from types import SimpleNamespace
+
+    from app.deps import IP_DESCONHECIDO, ip_do_cliente
+
+    assert ip_do_cliente(SimpleNamespace(client=None)) == IP_DESCONHECIDO  # type: ignore[arg-type]
+    assert ip_do_cliente(SimpleNamespace(client=SimpleNamespace(host="203.0.113.9"))) == "203.0.113.9"  # type: ignore[arg-type]
+
+
+def test_ttl_padrao_da_sessao_e_24_horas(monkeypatch):
+    from app.config import load_settings
+
+    monkeypatch.delenv("JWT_TTL_HOURS", raising=False)
+    monkeypatch.setenv("APP_ENV", "development")
+    assert load_settings().jwt_ttl_hours == 24
+    monkeypatch.setenv("JWT_TTL_HOURS", "12")
+    assert load_settings().jwt_ttl_hours == 12
+
+
 def test_token_antigo_sem_versao_continua_valendo(client):
     """Compatibilidade: tokens emitidos antes da coluna token_versao não têm o claim "tv" (valem como versão 0)."""
     import jwt as pyjwt
@@ -706,7 +792,8 @@ def test_token_antigo_sem_versao_continua_valendo(client):
 def test_trocar_senha_tem_limite_de_tentativas(client):
     pac = cadastrar(client, "pac-brute@x.com")
     codigos = [client.post("/auth/senha", headers=pac["h"], json={"senha_atual": f"errada-{i}", "nova_senha": "qualquer-senha-1"}).status_code for i in range(7)]
-    assert codigos[:5] == [400] * 5 and 429 in codigos
+    assert codigos[:5] == [400] * 5
+    assert 429 in codigos
 
 
 def test_avaliacao_nao_expoe_o_nome_completo_do_paciente_a_terceiros(client):
@@ -755,7 +842,8 @@ def test_historico_financeiro_agrupa_meses_e_bate_com_o_mensal(client, monkeypat
             client.patch(f"/sessoes/{sid}", headers=pro["h"], json={"status": "concluida"})
     hist = client.get("/profissional/financeiro/historico", headers=pro["h"], params={"meses": 12}).json()
     assert len(hist) == 12
-    assert sum(m["sessoes_concluidas"] for m in hist) == 1 and sum(m["sessoes_agendadas"] for m in hist) == 1
+    assert sum(m["sessoes_concluidas"] for m in hist) == 1
+    assert sum(m["sessoes_agendadas"] for m in hist) == 1
     assert sum(m["recebido_centavos"] for m in hist) == 10000
     atual = client.get("/profissional/financeiro", headers=pro["h"], params={"mes": hist[0]["mes"]}).json()
     assert atual["recebido_centavos"] == hist[0]["recebido_centavos"]

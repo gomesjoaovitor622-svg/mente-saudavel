@@ -39,13 +39,13 @@ class DatabaseSchema {
     )
   ''';
 
-  // v4: fila de ações feitas sem internet (Outbox Pattern). `chave` é a chave de idempotência
+  // v4 (CHECK ampliado na v5 com 'humor' e 'perfil'): fila de ações feitas sem internet (Outbox Pattern). `chave` é a chave de idempotência
   // enviada ao servidor: reenviar a mesma ação nunca a duplica.
   static const String outbox = '''
     CREATE TABLE IF NOT EXISTS outbox (
       id          INTEGER PRIMARY KEY AUTOINCREMENT,
       usuario_id  INTEGER NOT NULL,
-      tipo        TEXT NOT NULL CHECK (tipo IN ('agendar', 'status', 'remarcar')),
+      tipo        TEXT NOT NULL CHECK (tipo IN ('agendar', 'status', 'remarcar', 'humor', 'perfil')),
       payload     TEXT NOT NULL,
       chave       TEXT NOT NULL UNIQUE,
       estado      TEXT NOT NULL DEFAULT 'pendente' CHECK (estado IN ('pendente', 'conflito', 'falhou')),

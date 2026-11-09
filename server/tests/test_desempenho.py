@@ -34,9 +34,9 @@ def _popular(client, qtd: int):
 
 
 def test_listar_sessoes_usa_numero_fixo_de_consultas(client):
-    pro, pac = _popular(client, 3)
+    _pro, pac = _popular(client, 3)
     pouco = _contar(client, lambda: client.get("/sessoes", headers=pac["h"]))
-    pro2, pac2 = _popular_extra(client)
+    _pro2, _pac2 = _popular_extra(client)
     muito = _contar(client, lambda: client.get("/sessoes", headers=pac["h"]))
     assert muito == pouco  # mesma quantidade de consultas com mais linhas
     assert muito <= 4  # usuário (token) + sessões (+ juntas); nunca 1 por sessão

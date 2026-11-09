@@ -104,6 +104,59 @@ void main() {
     await db.close();
   });
 
+  test('v4 -> v5: a fila passa a aceitar humor e perfil e as ações pendentes são preservadas', () async {
+    final caminho = await caminhoTemporario();
+    // Esquema EXATO da v4 (CHECK antigo: só agendar, status e remarcar), com ações pendentes.
+    final v4 = await databaseFactory.openDatabase(
+      caminho,
+      options: OpenDatabaseOptions(
+        version: 4,
+        onCreate: (db, _) async {
+          await _criarV2(db);
+          await db.execute('''
+            CREATE TABLE outbox (
+              id INTEGER PRIMARY KEY AUTOINCREMENT, usuario_id INTEGER NOT NULL,
+              tipo TEXT NOT NULL CHECK (tipo IN ('agendar', 'status', 'remarcar')),
+              payload TEXT NOT NULL, chave TEXT NOT NULL UNIQUE,
+              estado TEXT NOT NULL DEFAULT 'pendente' CHECK (estado IN ('pendente', 'conflito', 'falhou')),
+              tentativas INTEGER NOT NULL DEFAULT 0, ultimo_erro TEXT, criado_em TEXT NOT NULL)''');
+          await db.execute('CREATE INDEX idx_outbox_usuario ON outbox (usuario_id, id)');
+          await db.execute(DatabaseSchema.cacheKv);
+        },
+      ),
+    );
+    final agora = DateTime.now().toIso8601String();
+    await v4.insert('outbox', {'usuario_id': 1, 'tipo': 'agendar', 'payload': '{"a":1}', 'chave': 'k1', 'estado': 'pendente', 'criado_em': agora});
+    await v4.insert('outbox', {'usuario_id': 1, 'tipo': 'status', 'payload': '{"b":2}', 'chave': 'k2', 'estado': 'falhou', 'tentativas': 3, 'ultimo_erro': 'boom', 'criado_em': agora});
+    // Antes da correção, o banco recusava humor/perfil:
+    await expectLater(
+      v4.insert('outbox', {'usuario_id': 1, 'tipo': 'humor', 'payload': '{}', 'chave': 'k3', 'criado_em': agora}),
+      throwsA(isA<DatabaseException>()),
+    );
+    await v4.close();
+
+    final db = await databaseFactory.openDatabase(
+      caminho,
+      options: OpenDatabaseOptions(version: Migracoes.versaoAtual, onUpgrade: Migracoes.atualizar),
+    );
+    final fila = await db.query('outbox', orderBy: 'id');
+    expect(fila.map((l) => l['chave']), ['k1', 'k2']); // nada se perdeu
+    expect(fila[1]['estado'], 'falhou');
+    expect(fila[1]['tentativas'], 3);
+    expect(fila[1]['ultimo_erro'], 'boom');
+    for (final tipo in ['humor', 'perfil']) {
+      await db.insert('outbox', {'usuario_id': 1, 'tipo': tipo, 'payload': '{}', 'chave': 'novo-$tipo', 'criado_em': agora});
+    }
+    await expectLater(
+      db.insert('outbox', {'usuario_id': 1, 'tipo': 'inexistente', 'payload': '{}', 'chave': 'x', 'criado_em': agora}),
+      throwsA(isA<DatabaseException>()), // o CHECK continua protegendo contra tipos inválidos
+    );
+    final indices = await db.rawQuery("SELECT name FROM sqlite_master WHERE type = 'index' AND name = 'idx_outbox_usuario'");
+    expect(indices, hasLength(1));
+    expect(await db.rawQuery("SELECT name FROM sqlite_master WHERE name = 'outbox_antiga'"), isEmpty);
+    await db.close();
+  });
+
   test('versão sem passo escrito falha de forma explícita (e a transação desfaz tudo)', () async {
     final db = await abrirBancoNovo();
     await expectLater(() => Migracoes.atualizar(db, Migracoes.versaoAtual, Migracoes.versaoAtual + 1), throwsStateError);
