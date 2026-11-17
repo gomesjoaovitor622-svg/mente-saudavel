@@ -1,0 +1,145 @@
+name: Build iOS
+
+# Compila o app para iPhone em um runner macOS.
+# - Sem segredos da Apple: gera um .ipa SEM assinatura (MenteSaudavel-unsigned.ipa), que pode ser instalado
+#   com Sideloadly/AltStore usando um Apple ID comum (validade de 7 dias) ou assinado depois.
+# - Com os 4 segredos IOS_*: gera um .ipa assinado (ad hoc/development) pronto para instalar nos aparelhos do perfil.
+on:
+  push:
+    branches: [main, master, dev]
+    tags: ['v*.*.*']
+  pull_request:
+    branches: [main, master]
+  workflow_dispatch:
+    inputs:
+      demo:
+        description: 'Incluir contas e dados de demonstração no app?'
+        type: boolean
+        default: true
+      api_url:
+        description: 'URL HTTPS da API (ex.: https://app.seudominio.com.br/api). Vazio = SQLite local.'
+        type: string
+        required: false
+        default: ''
+
+concurrency:
+  group: build-ios-${{ github.ref }}
+  cancel-in-progress: ${{ !startsWith(github.ref, 'refs/tags/') }}
+
+permissions: {}
+
+defaults:
+  run:
+    shell: bash
+
+jobs:
+  build:
+    name: Compilar iOS
+    runs-on: macos-15
+    timeout-minutes: 45
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - uses: subosito/flutter-action@1a449444c387b1966244ae4d4f8c696479add0b2 # v2.23.0
+        with:
+          channel: stable
+          cache: true
+
+      - name: Definir o modo do app (demo x produção)
+        env:
+          EVENT: ${{ github.event_name }}
+          REF: ${{ github.ref }}
+          INPUT_DEMO: ${{ inputs.demo }}
+        run: |
+          if [[ "$REF" == refs/tags/* ]]; then demo=false
+          elif [[ "$EVENT" == "workflow_dispatch" ]]; then demo="$INPUT_DEMO"
+          else demo=true; fi
+          echo "DEMO_MODE=$demo" >> "$GITHUB_ENV"
+          echo "Modo demo: $demo"
+
+      - name: Validar URL da API
+        env:
+          INPUT_API_URL: ${{ inputs.api_url }}
+          REPOSITORY_API_URL: ${{ vars.API_URL }}
+        run: |
+          api_url="${INPUT_API_URL:-}"
+          if [[ -z "$api_url" ]]; then api_url="${REPOSITORY_API_URL:-}"; fi
+          if [[ -n "$api_url" ]]; then
+            [[ "$api_url" =~ ^https://[^/[:space:]]+(/api)?/?$ ]] || {
+              echo "::error::API_URL deve ser HTTPS, sem espaços, e terminar opcionalmente em /api."; exit 1;
+            }
+            api_url="${api_url%/}"
+            [[ "$api_url" == */api ]] || api_url="$api_url/api"
+          fi
+          echo "API_URL=$api_url" >> "$GITHUB_ENV"
+          if [[ -n "$api_url" ]]; then echo "iOS usará API remota: $api_url"; else echo "API_URL vazia: iOS usará SQLite local, sem sincronização."; fi
+
+      - name: Gerar e ajustar a pasta ios
+        run: tools/preparar_ios.sh
+
+      - name: Baixar dependências
+        run: flutter pub get
+
+      - name: Compilar (sem assinatura)
+        run: flutter build ios --release --no-codesign --dart-define=DEMO_MODE="$DEMO_MODE" --dart-define=API_URL="$API_URL"
+
+      - name: Empacotar .ipa sem assinatura
+        run: |
+          mkdir -p dist/Payload
+          cp -R build/ios/iphoneos/Runner.app dist/Payload/
+          (cd dist && zip -qry MenteSaudavel-unsigned.ipa Payload && rm -rf Payload)
+          (cd dist && shasum -a 256 MenteSaudavel-unsigned.ipa | tee MenteSaudavel-unsigned.ipa.sha256)
+
+      - name: Assinar e exportar .ipa (se os segredos da Apple existirem)
+        env:
+          CERT_P12_B64: ${{ secrets.IOS_CERT_P12_B64 }}
+          CERT_PASSWORD: ${{ secrets.IOS_CERT_PASSWORD }}
+          PROFILE_B64: ${{ secrets.IOS_PROVISION_PROFILE_B64 }}
+          TEAM_ID: ${{ secrets.IOS_TEAM_ID }}
+          METHOD: ${{ vars.IOS_EXPORT_METHOD }}   # development | ad-hoc | app-store-connect (padrão: ad-hoc)
+        run: |
+          if [[ -z "${CERT_P12_B64:-}" || -z "${CERT_PASSWORD:-}" || -z "${PROFILE_B64:-}" || -z "${TEAM_ID:-}" ]]; then
+            echo "::notice title=iOS sem assinatura::Sem IOS_CERT_P12_B64, IOS_CERT_PASSWORD, IOS_PROVISION_PROFILE_B64 e IOS_TEAM_ID só sai o .ipa sem assinatura. Veja docs/RELEASE-MOBILE.md."
+            exit 0
+          fi
+          kc="$RUNNER_TEMP/build.keychain-db"; kcpw="$(uuidgen)"
+          trap 'security delete-keychain "$kc" 2>/dev/null || true; rm -f "$RUNNER_TEMP/cert.p12" "$RUNNER_TEMP/perfil.mobileprovision"' EXIT
+          printf '%s' "$CERT_P12_B64" | base64 -d > "$RUNNER_TEMP/cert.p12"
+          printf '%s' "$PROFILE_B64" | base64 -d > "$RUNNER_TEMP/perfil.mobileprovision"
+          security create-keychain -p "$kcpw" "$kc"
+          security set-keychain-settings -lut 3600 "$kc"
+          security unlock-keychain -p "$kcpw" "$kc"
+          security import "$RUNNER_TEMP/cert.p12" -P "$CERT_PASSWORD" -A -t cert -f pkcs12 -k "$kc"
+          security set-key-partition-list -S apple-tool:,apple: -k "$kcpw" "$kc" > /dev/null
+          security list-keychains -d user -s "$kc" login.keychain-db
+          mkdir -p "$HOME/Library/MobileDevice/Provisioning Profiles"
+          profile_uuid="$(/usr/libexec/PlistBuddy -c 'Print :UUID' /dev/stdin <<<"$(security cms -D -i "$RUNNER_TEMP/perfil.mobileprovision")")"
+          profile_name="$(/usr/libexec/PlistBuddy -c 'Print :Name' /dev/stdin <<<"$(security cms -D -i "$RUNNER_TEMP/perfil.mobileprovision")")"
+          cp "$RUNNER_TEMP/perfil.mobileprovision" "$HOME/Library/MobileDevice/Provisioning Profiles/$profile_uuid.mobileprovision"
+          bundle_id="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleIdentifier' build/ios/iphoneos/Runner.app/Info.plist)"
+          echo "Bundle ID do app: $bundle_id (o perfil de provisionamento precisa ser deste ID)"
+          cat > "$RUNNER_TEMP/ExportOptions.plist" <<PLIST
+          <?xml version="1.0" encoding="UTF-8"?>
+          <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+          <plist version="1.0"><dict>
+            <key>method</key><string>${METHOD:-ad-hoc}</string>
+            <key>teamID</key><string>${TEAM_ID}</string>
+            <key>signingStyle</key><string>manual</string>
+            <key>provisioningProfiles</key><dict><key>${bundle_id}</key><string>${profile_name}</string></dict>
+          </dict></plist>
+          PLIST
+          flutter build ipa --release --export-options-plist="$RUNNER_TEMP/ExportOptions.plist" \
+            --dart-define=DEMO_MODE="$DEMO_MODE" --dart-define=API_URL="$API_URL"
+          cp build/ios/ipa/*.ipa dist/MenteSaudavel-signed.ipa
+          (cd dist && shasum -a 256 MenteSaudavel-signed.ipa | tee MenteSaudavel-signed.ipa.sha256)
+
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: MenteSaudavel-iOS
+          path: dist/
+          retention-days: 30
+          if-no-files-found: error
