@@ -28,6 +28,7 @@ from app.migracoes import exigir_banco_migrado
 from app.models import Usuario
 from app.observabilidade import REQUEST_ID_RE, Metricas, configurar_logs
 from app.rotas import agenda, auth, humor, operacao, profissional
+from app.saude import ROTAS_SAUDE
 
 
 def create_app(settings: Settings | None = None, engine: Engine | None = None, mailer: Mailer | None = None) -> FastAPI:
@@ -93,11 +94,15 @@ def create_app(settings: Settings | None = None, engine: Engine | None = None, m
             rid = uuid.uuid4().hex
         request.state.request_id = rid
         inicio = time.perf_counter()
+        metricas.requisicao_iniciada()
         try:
             resp: Response = await call_next(request)
         except Exception:  # erro não tratado: registra com a pilha e devolve 500 sem detalhes internos
             log.error("erro_nao_tratado", extra={"campos": {"request_id": rid, "metodo": request.method}}, exc_info=True)
+            metricas.contar("ms_erros_nao_tratados_total")
             resp = JSONResponse({"detail": f"Erro interno. Informe o código {rid} ao suporte."}, status_code=500)
+        finally:
+            metricas.requisicao_terminada()
         segundos = time.perf_counter() - inicio
         rota = getattr(request.scope.get("route"), "path", None) or "(sem rota)"
         resp.headers["X-Content-Type-Options"] = "nosniff"
@@ -106,7 +111,7 @@ def create_app(settings: Settings | None = None, engine: Engine | None = None, m
         resp.headers["X-Request-ID"] = rid
         resp.headers["Server-Timing"] = f"app;dur={segundos * 1000:.1f}"
         metricas.observar(request.method, rota, resp.status_code, segundos)
-        if rota != "/health":  # o healthcheck do Docker enche o log à toa
+        if rota not in ROTAS_SAUDE or resp.status_code >= 400:  # o healthcheck do Docker enche o log à toa (falhas, não)
             nivel = logging.ERROR if resp.status_code >= 500 else logging.INFO
             log.log(
                 nivel,

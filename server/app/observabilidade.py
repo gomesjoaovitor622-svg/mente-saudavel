@@ -11,6 +11,7 @@ import json
 import logging
 import re
 import threading
+import time
 from datetime import UTC, datetime
 from typing import Any
 
@@ -67,6 +68,33 @@ class Metricas:
     def __init__(self) -> None:
         self._lock = threading.Lock()
         self._dados: dict[tuple[str, str, str], list[float]] = {}
+        self._contadores: dict[tuple[str, tuple[tuple[str, str], ...]], float] = {}
+        self._medidores: dict[str, float] = {"ms_process_start_time_seconds": time.time()}
+        self._em_andamento = 0
+
+    @staticmethod
+    def _limpo(valor: str) -> str:
+        """Rótulo seguro para o formato Prometheus (sem aspas, quebras de linha nem barras)."""
+        return re.sub(r"[^A-Za-z0-9_.-]", "_", valor)[:40] or "_"
+
+    def contar(self, nome: str, valor: float = 1.0, **rotulos: str) -> None:
+        """Soma [valor] a um contador (`ms_...`). Use só rótulos de conjunto FECHADO (nunca texto do cliente)."""
+        chave = (nome, tuple(sorted((k, self._limpo(v)) for k, v in rotulos.items())))
+        with self._lock:
+            self._contadores[chave] = self._contadores.get(chave, 0.0) + valor
+
+    def definir(self, nome: str, valor: float) -> None:
+        """Valor atual de um medidor (gauge), ex.: banco no ar (1/0)."""
+        with self._lock:
+            self._medidores[nome] = valor
+
+    def requisicao_iniciada(self) -> None:
+        with self._lock:
+            self._em_andamento += 1
+
+    def requisicao_terminada(self) -> None:
+        with self._lock:
+            self._em_andamento = max(0, self._em_andamento - 1)
 
     def observar(self, metodo: str, rota: str, status: int, segundos: float) -> None:
         chave = (metodo, rota, f"{status // 100}xx")
@@ -87,6 +115,9 @@ class Metricas:
         ]
         with self._lock:
             itens = sorted(self._dados.items())
+            contadores = sorted(self._contadores.items())
+            medidores = dict(self._medidores)
+            medidores["ms_http_requests_in_flight"] = float(self._em_andamento)
         for (metodo, rota, classe), d in itens:
             rot = f'metodo="{metodo}",rota="{rota}",status="{classe}"'
             linhas.append(f"ms_http_requests_total{{{rot}}} {int(d[0])}")
@@ -95,4 +126,14 @@ class Metricas:
             linhas.append(f'ms_http_request_duration_seconds_bucket{{{rot},le="+Inf"}} {int(d[0])}')
             linhas.append(f"ms_http_request_duration_seconds_sum{{{rot}}} {d[1]:.6f}")
             linhas.append(f"ms_http_request_duration_seconds_count{{{rot}}} {int(d[0])}")
+        nomes_contadores: set[str] = set()
+        for (nome, rotulos), valor in contadores:
+            if nome not in nomes_contadores:
+                nomes_contadores.add(nome)
+                linhas.append(f"# TYPE {nome} counter")
+            r = ",".join(f'{k}="{v}"' for k, v in rotulos)
+            linhas.append(f"{nome}{{{r}}} {valor:g}" if r else f"{nome} {valor:g}")
+        for nome, valor in sorted(medidores.items()):
+            linhas.append(f"# TYPE {nome} gauge")
+            linhas.append(f"{nome} {valor:g}")
         return "\n".join(linhas) + "\n"

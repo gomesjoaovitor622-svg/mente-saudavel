@@ -1,4 +1,9 @@
+import 'dart:async';
+
 import 'package:flutter/foundation.dart';
+import 'package:mente_saudavel/app/dependencias.dart';
+import 'package:mente_saudavel/data/remote/humor_perfil_remoto.dart';
+import 'package:mente_saudavel/data/remote/perfil_offline.dart';
 import 'package:mente_saudavel/data/local/outbox_repository.dart';
 import 'package:mente_saudavel/database/usuario_dao.dart';
 import 'package:mente_saudavel/legal/textos_legais.dart';
@@ -173,18 +178,46 @@ class AuthService {
 
   static Future<void> atualizarPerfil(Usuario atualizado) async {
     if (usaServidor) {
-      final r = await ApiClient.patch('/auth/eu', corpo: {
+      final campos = <String, Object?>{
         'nome': atualizado.nome,
         'registro': atualizado.registro,
         'especialidade': atualizado.especialidade,
         'endereco': atualizado.endereco,
         'valor_sessao_centavos': atualizado.valorSessaoCentavos,
-      });
-      atual.value = _doServidor(r);
+      };
+      final fila = _perfilOffline();
+      if (fila == null) {
+        // Navegador: sem fila offline (o site só funciona online).
+        atual.value = _doServidor(await ApiClient.patch('/auth/eu', corpo: campos));
+        return;
+      }
+      // Celular: sem internet, a alteração fica na fila e o app já mostra o valor novo; sobe quando a rede voltar.
+      final r = await fila.salvar(campos);
+      atual.value = r == null ? atualizado : _doServidor(r);
       return;
     }
     await _dao.atualizarPerfil(atualizado);
     atual.value = atualizado;
+  }
+
+  /// Atualização cadastral com fila offline (null no navegador e nos testes sem [Dependencias]).
+  static PerfilOffline? _perfilOffline() {
+    try {
+      final deps = Dependencias.instancia;
+      final outbox = deps.outbox;
+      if (outbox == null) return null;
+      return PerfilOffline(
+        remoto: PerfilRemoto(),
+        outbox: outbox,
+        usuarioId: () => atual.value?.id,
+        aoMudarFila: () {
+          deps.sincronizador?.notificar();
+          unawaited(deps.sincronizador?.sincronizar());
+        },
+      );
+    } on StateError {
+      return null;
+    }
   }
 
   static Future<void> alterarSenha(String senhaAtual, String novaSenha) async {

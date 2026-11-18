@@ -26,5 +26,7 @@ HEALTHCHECK --interval=15s --timeout=3s --start-period=20s --retries=5 \
   CMD python -c "import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://127.0.0.1:8000/health', timeout=2).status==200 else 1)"
 
 # --factory: cria o app lendo a configuração do ambiente. A API não é exposta à internet
-# (só o Caddy fala com ela), por isso confia nos cabeçalhos X-Forwarded-*.
-CMD ["uvicorn", "app.main:create_app", "--factory", "--host", "0.0.0.0", "--port", "8000", "--proxy-headers", "--forwarded-allow-ips", "*", "--no-server-header"]
+# (só o Caddy fala com ela). Os cabeçalhos X-Forwarded-* só valem vindos de FORWARDED_ALLOW_IPS (o Uvicorn lê
+# a variável sozinha; o compose de produção a ajusta para o IP fixo do Caddy). Padrão seguro: só localhost.
+ENV FORWARDED_ALLOW_IPS=127.0.0.1
+CMD ["uvicorn", "app.main:create_app", "--factory", "--host", "0.0.0.0", "--port", "8000", "--proxy-headers", "--no-server-header"]

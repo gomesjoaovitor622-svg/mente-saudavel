@@ -65,7 +65,7 @@ def test_indices_parciais_bloqueiam_horario_duplicado_mas_liberam_cancelada(engi
                 {"i": i, "e": f"u{i}@x.com", "p": perfil, "t": agora},
             )
 
-    def inserir(c, pac: int, status: str) -> None:  # noqa: ANN001
+    def inserir(c, pac: int, status: str) -> None:
         c.execute(
             text("INSERT INTO sessoes (paciente_id, profissional_id, data_hora, modalidade, status, criado_em) VALUES (:pac, 2, :t, 'online', :s, :t)"),
             {"pac": pac, "s": status, "t": agora},

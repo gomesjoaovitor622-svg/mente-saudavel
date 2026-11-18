@@ -9,6 +9,8 @@ class TipoOutbox {
   static const String agendar = 'agendar';
   static const String status = 'status';
   static const String remarcar = 'remarcar';
+  static const String humor = 'humor'; // registro do diário de humor
+  static const String perfil = 'perfil'; // atualização cadastral (nome, registro, endereço...)
 }
 
 /// Estados de um item da fila.
@@ -45,6 +47,11 @@ class ItemOutbox {
   final String criadoEm;
 
   bool get pendente => estado == EstadoOutbox.pendente;
+
+  /// Recusado de forma definitiva ou com as tentativas esgotadas: só volta à fila se a PESSOA mandar.
+  bool get falhou => estado == EstadoOutbox.falhou;
+
+  bool get emConflito => estado == EstadoOutbox.conflito;
 
   static ItemOutbox fromMap(Map<String, Object?> m) => ItemOutbox(
         id: m['id']! as int,
@@ -91,6 +98,19 @@ class OutboxRepository {
     return ItemOutbox.fromMap({...linha, 'id': id});
   }
 
+  /// Como [enfileirar], mas só a versão MAIS RECENTE fica: apaga antes os itens `pendente` do mesmo [tipo] da
+  /// pessoa. Serve para ações do tipo "última gravação vence" (atualização cadastral): enviar a antiga depois
+  /// da nova seria desfazer a alteração.
+  Future<ItemOutbox> enfileirarUnico(int usuarioId, String tipo, Map<String, Object?> payload) async {
+    final db = await _abrir();
+    await db.delete(
+      'outbox',
+      where: 'usuario_id = ? AND tipo = ? AND estado = ?',
+      whereArgs: [usuarioId, tipo, EstadoOutbox.pendente],
+    );
+    return enfileirar(usuarioId, tipo, payload);
+  }
+
   /// Todos os itens da pessoa (qualquer estado), do mais antigo para o mais novo.
   Future<List<ItemOutbox>> todos(int usuarioId) async {
     final db = await _abrir();
@@ -106,6 +126,18 @@ class OutboxRepository {
     await db.rawUpdate(
       'UPDATE outbox SET estado = ?, ultimo_erro = ?, tentativas = tentativas + ? WHERE id = ?',
       [estado, erro, contarTentativa ? 1 : 0, id],
+    );
+  }
+
+  /// Devolve à fila um item que falhou: volta a `pendente` com o contador zerado, mantendo a MESMA chave
+  /// de idempotência (reenviar nunca cria a sessão duas vezes). Só mexe em item `falhou` do próprio
+  /// [usuarioId]: um `conflito` precisa de decisão da pessoa e um `pendente` já está na fila.
+  /// Devolve quantos itens foram reativados.
+  Future<int> reativarFalhas(int usuarioId, {int? id}) async {
+    final db = await _abrir();
+    return db.rawUpdate(
+      'UPDATE outbox SET estado = ?, tentativas = 0, ultimo_erro = NULL WHERE usuario_id = ? AND estado = ?${id == null ? '' : ' AND id = ?'}',
+      [EstadoOutbox.pendente, usuarioId, EstadoOutbox.falhou, if (id != null) id],
     );
   }
 

@@ -14,7 +14,7 @@ from app.db import Base, make_engine
 from app.main import create_app
 
 
-@pytest.fixture()
+@pytest.fixture
 def client() -> Iterator[TestClient]:
     from sqlalchemy import create_engine, event
 

@@ -64,7 +64,9 @@ services:
       METRICS_TOKEN: ${METRICS_TOKEN:-}
       MAX_BODY_BYTES: ${MAX_BODY_BYTES:-1000000}
       LOG_LEVEL: ${LOG_LEVEL:-INFO}
-      JWT_TTL_HOURS: ${JWT_TTL_HOURS:-168}
+      JWT_TTL_HOURS: ${JWT_TTL_HOURS:-24}
+      # Só o Caddy (IP fixo abaixo) pode informar o IP real do cliente via X-Forwarded-For.
+      FORWARDED_ALLOW_IPS: ${FORWARDED_ALLOW_IPS:-172.31.250.10}
       PASSWORD_MIN: ${PASSWORD_MIN:-8}
       SIGNUP_MAX_ATTEMPTS: ${SIGNUP_MAX_ATTEMPTS:-10}
       TELEMETRY_MAX_PER_MINUTE: ${TELEMETRY_MAX_PER_MINUTE:-30}
@@ -83,6 +85,9 @@ services:
     tmpfs: [/tmp]
     cap_drop: [ALL]
     security_opt: ["no-new-privileges:true"]
+    logging:
+      driver: json-file
+      options: {max-size: "10m", max-file: "5"}   # rotação: os logs JSON não enchem o disco
     networks: [interna]          # sem "ports": a API só é acessível pelo Caddy
 
   # Compila o site Flutter e o publica no volume "webdata" (roda, copia e termina).
@@ -117,6 +122,35 @@ services:
     entrypoint: ["/bin/sh", "/usr/local/bin/agendador.sh"]
     networks: [interna]
 
+  # Monitor leve: confere /health/ready (API + banco) e a taxa de 5xx e avisa no log (e no webhook, se houver).
+  monitor:
+    image: postgres:16-alpine     # só para ter sh/wget/awk (mesma imagem do backup: nada novo para baixar)
+    restart: unless-stopped
+    depends_on:
+      api:
+        condition: service_started
+    environment:
+      ALERTA_URL: http://api:8000/health/ready
+      ALERTA_METRICAS_URL: http://api:8000/metricas
+      METRICS_TOKEN: ${METRICS_TOKEN:-}
+      ALERTA_WEBHOOK_URL: ${ALERTA_WEBHOOK_URL:-}
+      ALERTA_INTERVALO: ${ALERTA_INTERVALO:-30}
+      ALERTA_FALHAS: ${ALERTA_FALHAS:-3}
+      ALERTA_TAXA_5XX: ${ALERTA_TAXA_5XX:-0.05}
+      ALERTA_MIN_REQ: ${ALERTA_MIN_REQ:-20}
+      TZ: ${TZ:-America/Sao_Paulo}
+    volumes:
+      - ./monitor/alerta.sh:/usr/local/bin/alerta.sh:ro
+    entrypoint: ["/bin/sh", "/usr/local/bin/alerta.sh"]
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges:true"]
+    user: "65534:65534"
+    logging:
+      driver: json-file
+      options: {max-size: "10m", max-file: "5"}   # rotação: os logs JSON não enchem o disco
+    networks: [interna]
+
   caddy:
     image: caddy:2-alpine
     restart: unless-stopped
@@ -135,10 +169,18 @@ services:
       - webdata:/srv/web:ro      # site compilado pelo serviço "site"
       - caddy_data:/data
       - caddy_config:/config
-    networks: [interna]
+    logging:
+      driver: json-file
+      options: {max-size: "10m", max-file: "5"}   # rotação: os logs JSON não enchem o disco
+    networks:
+      interna:
+        ipv4_address: 172.31.250.10   # IP fixo: é o único proxy em quem a API confia (FORWARDED_ALLOW_IPS)
 
 networks:
   interna:
+    ipam:
+      config:
+        - subnet: 172.31.250.0/24   # se colidir com a rede do seu servidor, troque aqui e em FORWARDED_ALLOW_IPS
 
 volumes:
   webdata:

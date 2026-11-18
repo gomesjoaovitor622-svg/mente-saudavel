@@ -56,5 +56,5 @@ def enviar_sem_vazar(mailer: Mailer, log: logging.Logger, para: str, assunto: st
     try:
         mailer.enviar(para, assunto, texto)
         log.info("email_enviado")
-    except Exception:  # noqa: BLE001  (SMTP pode falhar de muitas formas; a requisição já respondeu)
+    except Exception:
         log.error("email_falhou", exc_info=True)

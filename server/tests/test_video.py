@@ -35,12 +35,12 @@ def _cliente(**extra) -> Iterator[TestClient]:
         yield c
 
 
-@pytest.fixture()
+@pytest.fixture
 def client() -> Iterator[TestClient]:
     yield from _cliente(video_domain=DOMINIO, video_app_id="ms-teste", video_app_secret=SEGREDO_VIDEO)
 
 
-@pytest.fixture()
+@pytest.fixture
 def client_sem_video() -> Iterator[TestClient]:
     yield from _cliente()
 
@@ -63,12 +63,19 @@ def test_os_dois_entram_na_mesma_sala_com_papeis_diferentes(client):
     pro, pac, sid = _sessao(client)
     p = client.get(f"/sessoes/{sid}/video", headers=pro["h"]).json()
     a = client.get(f"/sessoes/{sid}/video", headers=pac["h"]).json()
-    assert p["sala"] == a["sala"] and p["sala"].startswith("ms-") and len(p["sala"]) == 35
-    assert p["moderador"] is True and a["moderador"] is False
-    assert urlparse(p["url"]).netloc == DOMINIO and urlparse(p["url"]).path == f"/{p['sala']}"
+    assert p["sala"] == a["sala"]
+    assert p["sala"].startswith("ms-")
+    assert len(p["sala"]) == 35
+    assert p["moderador"] is True
+    assert a["moderador"] is False
+    assert urlparse(p["url"]).netloc == DOMINIO
+    assert urlparse(p["url"]).path == f"/{p['sala']}"
     cp, ca = _claims(p["url"]), _claims(a["url"])
-    assert cp["room"] == ca["room"] == p["sala"] and cp["iss"] == "ms-teste" and cp["sub"] == DOMINIO
-    assert cp["context"]["user"]["moderator"] is True and ca["context"]["user"]["moderator"] is False
+    assert cp["room"] == ca["room"] == p["sala"]
+    assert cp["iss"] == "ms-teste"
+    assert cp["sub"] == DOMINIO
+    assert cp["context"]["user"]["moderator"] is True
+    assert ca["context"]["user"]["moderator"] is False
     assert ca["context"]["user"]["name"] == "Nome"  # paciente: só o primeiro nome ("Nome pac-video@x.com" -> "Nome")
     assert "email" not in str(ca)  # minimização de dados
 
@@ -114,7 +121,8 @@ def test_sessao_presencial_cancelada_e_fora_da_janela_sao_recusadas(client):
     longe = (tempo.agora() + timedelta(hours=3)).replace(microsecond=0).isoformat()
     sid3 = client.post("/sessoes", headers=pac["h"], json={"profissional_id": pro3["id"], "data_hora": longe, "modalidade": "Online"}).json()["id"]
     r = client.get(f"/sessoes/{sid3}/video", headers=pac["h"])
-    assert r.status_code == 409 and "abre às" in r.json()["detail"]
+    assert r.status_code == 409
+    assert "abre às" in r.json()["detail"]
 
 
 def test_depois_da_janela_a_sala_fecha(client, monkeypatch):
@@ -123,7 +131,8 @@ def test_depois_da_janela_a_sala_fecha(client, monkeypatch):
     real = tempo.agora
     monkeypatch.setattr(video_mod.tempo, "agora", lambda: real() + timedelta(minutes=10 + 121))
     r = client.get(f"/sessoes/{sid}/video", headers=pro["h"])
-    assert r.status_code == 409 and "já passou" in r.json()["detail"]
+    assert r.status_code == 409
+    assert "já passou" in r.json()["detail"]
 
 
 def test_recurso_desligado_sem_dominio(client_sem_video):
@@ -135,4 +144,5 @@ def test_sem_segredo_o_link_nao_leva_token_mas_a_sala_continua_imprevisivel():
     for c in _cliente(video_domain=DOMINIO):
         pro, _, sid = _sessao(c)
         r = c.get(f"/sessoes/{sid}/video", headers=pro["h"]).json()
-        assert "jwt=" not in r["url"] and r["sala"] in r["url"]
+        assert "jwt=" not in r["url"]
+        assert r["sala"] in r["url"]

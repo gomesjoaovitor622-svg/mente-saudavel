@@ -2,7 +2,10 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:mente_saudavel/models/usuario.dart';
+import 'package:mente_saudavel/data/local/outbox_repository.dart';
 import 'package:mente_saudavel/presentation/providers/perfil_providers.dart';
+import 'package:mente_saudavel/presentation/providers/sessoes_providers.dart';
+import 'package:mente_saudavel/screens/pendencias_screen.dart';
 import 'package:mente_saudavel/screens/termos_screen.dart';
 import 'package:mente_saudavel/utils/build_flags.dart';
 import 'package:mente_saudavel/services/api_service.dart';
@@ -316,6 +319,24 @@ class _PerfilTabState extends ConsumerState<PerfilTab> {
             ),
             const SizedBox(height: 8),
             if (usaServidor) ...[
+              // Itens feitos sem internet (aguardando, com falha ou em conflito): ver, reenviar ou descartar.
+              Consumer(
+                builder: (context, ref, _) {
+                  final itens = ref.watch(pendenciasOutboxProvider).valueOrNull ?? const <ItemOutbox>[];
+                  final comProblema = itens.where((i) => !i.pendente).length;
+                  return OutlinedButton.icon(
+                    key: const Key('abrir-pendencias'),
+                    onPressed: () => Navigator.of(context).push(MaterialPageRoute<void>(builder: (_) => const PendenciasScreen())),
+                    icon: Badge(
+                      isLabelVisible: comProblema > 0,
+                      label: Text('$comProblema'),
+                      child: const Icon(Icons.cloud_sync_outlined),
+                    ),
+                    label: Text(itens.isEmpty ? 'Pendências de envio' : 'Pendências de envio (${itens.length})'),
+                  );
+                },
+              ),
+              const SizedBox(height: 8),
               OutlinedButton.icon(
                 onPressed: _exportarDados,
                 icon: const Icon(Icons.download_outlined),

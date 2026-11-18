@@ -18,7 +18,7 @@ class Settings:
     env: str = "production"
     database_url: str = "sqlite:///./data/mente_saudavel.db"
     jwt_secret: str = ""
-    jwt_ttl_hours: int = 24 * 7
+    jwt_ttl_hours: int = 24  # sessão curta: app de saúde; "Sair" também revoga (token_versao)
     cors_origins: tuple[str, ...] = field(default_factory=tuple)
     demo_seed: bool = False
     password_min: int = 8
@@ -114,7 +114,7 @@ def load_settings() -> Settings:
         env=env,
         database_url=db_url,
         jwt_secret=secret,
-        jwt_ttl_hours=int(os.environ.get("JWT_TTL_HOURS", str(24 * 7))),
+        jwt_ttl_hours=int(os.environ.get("JWT_TTL_HOURS", str(24))),
         cors_origins=origins,
         demo_seed=_bool("DEMO_SEED", False),
         password_min=int(os.environ.get("PASSWORD_MIN", "8")),

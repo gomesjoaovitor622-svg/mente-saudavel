@@ -215,11 +215,13 @@ class _HumorTabState extends State<HumorTab> {
                         leading: Text(r.emoji, style: const TextStyle(fontSize: 28)),
                         title: Text(r.rotulo),
                         subtitle: Text(
-                          r.nota.isEmpty
-                              ? formatarDataHora(r.dataHora)
-                              : '${formatarDataHora(r.dataHora)}\n${r.nota}',
+                          [
+                            formatarDataHora(r.dataHora),
+                            if (r.pendente) 'Aguardando internet para enviar',
+                            if (r.nota.isNotEmpty) r.nota,
+                          ].join('\n'),
                         ),
-                        isThreeLine: r.nota.isNotEmpty,
+                        isThreeLine: r.pendente || r.nota.isNotEmpty,
                         trailing: IconButton(
                           icon: const Icon(Icons.delete_outline),
                           tooltip: 'Excluir',

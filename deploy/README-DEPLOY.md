@@ -39,6 +39,13 @@ O site (Flutter web) e a API ficam no **mesmo domínio**: o site em `/`, a API e
 ## Dados de demonstração
 `DEMO_SEED=true` no `.env` cria 3 profissionais e 1 paciente de exemplo (senhas conhecidas, públicas no código). **Use só para testar; em produção deixe `false`.**
 
+## Rede, IP do cliente e sessão
+- A API só confia no cabeçalho `X-Forwarded-For` vindo do Caddy, que tem IP fixo `172.31.250.10` na rede `interna`
+  (variável `FORWARDED_ALLOW_IPS`; padrão da imagem: só `127.0.0.1`). Nunca use `*`: com a porta da API exposta,
+  qualquer um forjaria o IP e burlaria os limites de tentativa. Se a sub-rede `172.31.250.0/24` colidir com a do
+  servidor, troque-a no compose (rede `interna` e `ipv4_address` do Caddy) e em `FORWARDED_ALLOW_IPS`.
+- A sessão dura `JWT_TTL_HOURS` (padrão **24 h**). "Sair" revoga a sessão em todos os aparelhos.
+
 ## Variáveis (API)
 | Variável | Descrição |
 |---|---|

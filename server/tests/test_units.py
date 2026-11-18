@@ -8,10 +8,13 @@ from app.security import criar_token, hash_senha, ler_token, verificar_senha
 
 def test_hash_scrypt_e_verificacao():
     h = hash_senha("segredo-123")
-    assert h.startswith("scrypt$") and "segredo" not in h
-    assert verificar_senha("segredo-123", h) and not verificar_senha("outra", h)
+    assert h.startswith("scrypt$")
+    assert "segredo" not in h
+    assert verificar_senha("segredo-123", h)
+    assert not verificar_senha("outra", h)
     assert hash_senha("segredo-123") != h  # salt aleatório
-    assert not verificar_senha("x", "lixo") and not verificar_senha("x", "md5$1$2$3$4$5")
+    assert not verificar_senha("x", "lixo")
+    assert not verificar_senha("x", "md5$1$2$3$4$5")
 
 
 def test_token_valido_expirado_e_adulterado():
@@ -50,5 +53,6 @@ def test_limpar_texto_cliente_nao_trava_com_texto_malicioso_e_mascara_email():
     t0 = time.perf_counter()
     saida = limpar_texto_cliente("a" * 200_000 + "+" * 5_000 + "@", 300)
     assert time.perf_counter() - t0 < 1.0  # tempo limitado (antes: risco de ReDoS)
-    assert saida is not None and len(saida) <= 300
+    assert saida is not None
+    assert len(saida) <= 300
     assert limpar_texto_cliente("contato ana@ex.com.br fim\nlinha2", 300) == "contato [email] fim linha2"

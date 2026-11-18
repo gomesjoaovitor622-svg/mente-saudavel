@@ -17,7 +17,7 @@ from app.seed import popular_demo
 
 
 # ---------------------------------------------------------------- CLI admin
-@pytest.fixture()
+@pytest.fixture
 def banco_arquivo(tmp_path, monkeypatch):
     url = f"sqlite:///{tmp_path / 'x.db'}"
     monkeypatch.setenv("DATABASE_URL", url)
@@ -87,8 +87,11 @@ def test_smtp_starttls_com_login(monkeypatch):
     monkeypatch.setattr("app.emailer.smtplib.SMTP", SmtpFalso)
     SmtpMailer(_cfg(smtp_user="u", smtp_password="p")).enviar("a@b.com", "Assunto", "Corpo")
     f = SmtpFalso.ultimo
-    assert f.passos == ["starttls", "login:u", "enviado"] and f.port == 587
-    assert f.mensagem["To"] == "a@b.com" and f.mensagem["From"] == "no-reply@x.com" and f.mensagem["Subject"] == "Assunto"
+    assert f.passos == ["starttls", "login:u", "enviado"]
+    assert f.port == 587
+    assert f.mensagem["To"] == "a@b.com"
+    assert f.mensagem["From"] == "no-reply@x.com"
+    assert f.mensagem["Subject"] == "Assunto"
 
 
 def test_smtp_ssl_e_sem_seguranca(monkeypatch):
@@ -109,7 +112,9 @@ def test_falha_de_envio_nao_vaza_endereco_nem_codigo(caplog):
     with caplog.at_level(logging.INFO, logger="teste_email"):
         enviar_sem_vazar(Quebrado(), log, "segredo@x.com", "A", "código 123456")  # não pode levantar
     texto = caplog.text
-    assert "email_falhou" in texto and "segredo@x.com" not in texto and "123456" not in texto.replace("conexão", "")
+    assert "email_falhou" in texto
+    assert "segredo@x.com" not in texto
+    assert "123456" not in texto.replace("conexão", "")
 
 
 # ---------------------------------------------------------------- seed
@@ -120,7 +125,8 @@ def test_seed_cria_contas_demo_aprovadas_e_nao_repete():
         popular_demo(s)
         s.commit()
         profs = list(s.scalars(select(Usuario).where(Usuario.perfil == "profissional")))
-        assert len(profs) == 3 and all(p.verificado_em and p.email_verificado_em for p in profs)
+        assert len(profs) == 3
+        assert all(p.verificado_em and p.email_verificado_em for p in profs)
         n = len(list(s.scalars(select(Usuario))))
         popular_demo(s)  # banco já populado: nada muda
         assert len(list(s.scalars(select(Usuario)))) == n

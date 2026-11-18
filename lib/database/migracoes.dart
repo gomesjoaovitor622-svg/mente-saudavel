@@ -8,7 +8,8 @@ typedef Migracao = Future<void> Function(DatabaseExecutor db);
 ///
 /// Regras para criar uma nova versão (ex.: 4):
 ///  1. Some 1 em [versaoAtual] e acrescente `4: _v4` em [_passos].
-///  2. Use `ALTER TABLE ... ADD COLUMN` (nunca recrie nem apague tabelas com dados).
+///  2. Use `ALTER TABLE ... ADD COLUMN` (nunca apague tabelas com dados). Exceção: mudar um CHECK exige
+///     recriar a tabela; faça isso COPIANDO as linhas (veja `_v5`) e com teste que parte do banco antigo.
 ///  3. Atualize também `DatabaseSchema`, para que instalações novas (onCreate) e migradas
 ///     fiquem IDÊNTICAS. O teste `migracoes_test.dart` compara os dois caminhos.
 ///
@@ -17,12 +18,13 @@ typedef Migracao = Future<void> Function(DatabaseExecutor db);
 class Migracoes {
   Migracoes._();
 
-  static const int versaoAtual = 4;
+  static const int versaoAtual = 5;
 
   static final Map<int, Migracao> _passos = {
     2: _v2,
     3: _v3,
     4: _v4,
+    5: _v5,
   };
 
   /// Aplica, em ordem, todos os passos de [de] (exclusive) até [para] (inclusive).
@@ -71,6 +73,25 @@ class Migracoes {
     await db.execute(DatabaseSchema.outbox);
     await db.execute(DatabaseSchema.idxOutbox);
     await db.execute(DatabaseSchema.cacheKv);
+  }
+
+  // v4 -> v5: a fila passa a aceitar os tipos 'humor' e 'perfil'. Na v4 o CHECK só permitia
+  // 'agendar', 'status' e 'remarcar': gravar humor ou cadastro offline era recusado pelo banco.
+  // O SQLite não altera CHECK; por isso a tabela é recriada COPIANDO as ações pendentes (nada se perde).
+  // Repetível: se a tabela já está no formato novo (instalação nova ou migração repetida), não faz nada.
+  static Future<void> _v5(DatabaseExecutor db) async {
+    final atual = await db.rawQuery("SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'outbox'");
+    final ddl = atual.isEmpty ? '' : (atual.first['sql'] as String? ?? '');
+    if (atual.isEmpty || ddl.contains("'perfil'")) return;
+    await db.execute('DROP INDEX IF EXISTS idx_outbox_usuario');
+    await db.execute('ALTER TABLE outbox RENAME TO outbox_antiga');
+    await db.execute(DatabaseSchema.outbox);
+    await db.execute('''
+      INSERT INTO outbox (id, usuario_id, tipo, payload, chave, estado, tentativas, ultimo_erro, criado_em)
+      SELECT id, usuario_id, tipo, payload, chave, estado, tentativas, ultimo_erro, criado_em FROM outbox_antiga
+    ''');
+    await db.execute('DROP TABLE outbox_antiga');
+    await db.execute(DatabaseSchema.idxOutbox);
   }
 
   /// `ADD COLUMN` que não falha se a coluna já existir (migração repetível).

@@ -21,14 +21,17 @@ def test_422_nao_repete_o_valor_enviado(client):
     senha = "S3nh4-Super-Secreta-" + "x" * 120  # passa de 128: erro de validação NO campo da senha
     r = client.post("/auth/entrar", json={"email": "a@x.com", "senha": senha})
     assert r.status_code == 422
-    assert senha not in r.text and "input" not in r.text
+    assert senha not in r.text
+    assert "input" not in r.text
     itens = r.json()["detail"]
-    assert itens and set(itens[0]) == {"loc", "msg", "type"}
+    assert itens
+    assert set(itens[0]) == {"loc", "msg", "type"}
 
 
 def test_json_invalido_tambem_nao_vaza(client):
     r = client.post("/auth/entrar", content=b'{"senha": "abc', headers={"content-type": "application/json"})
-    assert r.status_code == 422 and "abc" not in r.text
+    assert r.status_code == 422
+    assert "abc" not in r.text
 
 
 def test_caractere_nulo_vira_422_e_nao_500(client):
@@ -65,7 +68,9 @@ def test_erro_interno_nao_vaza_detalhes(monkeypatch):
         raise RuntimeError("senha-do-banco=hunter2")
 
     r = TestClient(app, raise_server_exceptions=False).get("/boom")
-    assert r.status_code == 500 and "hunter2" not in r.text and "Informe o código" in r.json()["detail"]
+    assert r.status_code == 500
+    assert "hunter2" not in r.text
+    assert "Informe o código" in r.json()["detail"]
 
 
 def test_endpoints_protegidos_exigem_login(client):
@@ -82,7 +87,9 @@ def test_endpoints_protegidos_exigem_login(client):
 
 def test_cabecalhos_de_seguranca_em_toda_resposta(client):
     r = client.get("/health")
-    assert r.headers["x-content-type-options"] == "nosniff" and r.headers["cache-control"] == "no-store" and "x-request-id" in r.headers
+    assert r.headers["x-content-type-options"] == "nosniff"
+    assert r.headers["cache-control"] == "no-store"
+    assert "x-request-id" in r.headers
 
 
 def test_variaveis_de_ambiente_lidas_estao_documentadas_no_env_example():

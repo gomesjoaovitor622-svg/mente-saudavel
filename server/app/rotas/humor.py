@@ -1,14 +1,15 @@
 """Diário de humor do paciente."""
 
 from datetime import timedelta
-from typing import Any
+from typing import Annotated, Any
 
-from fastapi import APIRouter, HTTPException, Query, Response
+from fastapi import APIRouter, Header, HTTPException, Query, Response
 from sqlalchemy import select
+from sqlalchemy.exc import IntegrityError
 
 from app import schemas, tempo
 from app.contexto import Contexto
-from app.deps import Db, Eu
+from app.deps import CHAVE_IDEMPOTENCIA, Db, Eu
 from app.erros import exigir_perfil
 from app.models import Humor
 from app.saidas import humor_out
@@ -28,11 +29,43 @@ def criar_rotas(ctx: Contexto) -> APIRouter:
         return [humor_out(h) for h in db.scalars(stmt)]
 
     @router.post("/humor", status_code=201)
-    def registrar_humor(body: schemas.HumorIn, user: Eu, db: Db) -> dict[str, Any]:
+    def registrar_humor(
+        body: schemas.HumorIn,
+        user: Eu,
+        db: Db,
+        response: Response,
+        chave: Annotated[str | None, Header(alias="Idempotency-Key")] = None,
+    ) -> dict[str, Any]:
+        """Registra o humor. Com `Idempotency-Key`, reenviar o mesmo registro (fila offline do app) devolve
+        o que já existe (200) em vez de criar outro."""
         exigir_perfil(user, "paciente")
-        h = Humor(usuario_id=user.id, nivel=body.nivel, nota=body.nota, data_hora=body.data_hora or tempo.agora().replace(microsecond=0))
+        if chave is not None and not CHAVE_IDEMPOTENCIA.fullmatch(chave):
+            raise HTTPException(422, "Idempotency-Key inválida (8 a 64 letras, números, '-' ou '_').")
+
+        def _existente() -> Humor | None:
+            if chave is None:
+                return None
+            return db.scalar(select(Humor).where(Humor.usuario_id == user.id, Humor.chave_idempotencia == chave))
+
+        if (ja := _existente()) is not None:
+            response.status_code = 200
+            return humor_out(ja)
+        h = Humor(
+            usuario_id=user.id,
+            nivel=body.nivel,
+            nota=body.nota,
+            data_hora=body.data_hora or tempo.agora().replace(microsecond=0),
+            chave_idempotencia=chave,
+        )
         db.add(h)
-        db.commit()
+        try:
+            db.commit()
+        except IntegrityError:  # duas requisições com a mesma chave ao mesmo tempo: a perdedora devolve a vencedora
+            db.rollback()
+            if (ja := _existente()) is None:
+                raise
+            response.status_code = 200
+            return humor_out(ja)
         return humor_out(h)
 
     @router.delete("/humor/{humor_id}", status_code=204)

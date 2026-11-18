@@ -2,18 +2,13 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:mente_saudavel/data/local/outbox_repository.dart';
 import 'package:mente_saudavel/presentation/providers/sessoes_providers.dart';
+import 'package:mente_saudavel/screens/pendencias_screen.dart';
 import 'package:mente_saudavel/widgets/componentes.dart';
 
 /// Faixa que aparece só quando há ações guardadas sem internet: mostra quantas faltam enviar,
 /// deixa tentar agora e permite descartar o que o servidor recusou (ex.: horário que foi ocupado).
 class PendenciasBanner extends ConsumerWidget {
   const PendenciasBanner({super.key});
-
-  String _descricao(ItemOutbox i) => switch (i.tipo) {
-        TipoOutbox.agendar => 'Agendamento',
-        TipoOutbox.remarcar => 'Remarcação',
-        _ => 'Alteração de sessão',
-      };
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
@@ -65,13 +60,21 @@ class PendenciasBanner extends ConsumerWidget {
                 children: [
                   const Icon(Icons.error_outline, size: 20, color: Colors.red),
                   const SizedBox(width: 8),
-                  Expanded(child: Text('${_descricao(i)} não enviado: ${i.ultimoErro ?? 'recusado pelo servidor'}')),
+                  Expanded(child: Text('${PendenciasScreen.descricao(i)} não enviado: ${i.ultimoErro ?? 'recusado pelo servidor'}')),
                   TextButton(
                     onPressed: sincronizador == null ? null : () => sincronizador.descartar(i.id),
                     child: const Text('Descartar'),
                   ),
                 ],
               ),
+            Align(
+              alignment: Alignment.centerRight,
+              child: TextButton(
+                key: const Key('ver-pendencias'),
+                onPressed: () => Navigator.of(context).push(MaterialPageRoute<void>(builder: (_) => const PendenciasScreen())),
+                child: Text(recusados.any((i) => i.falhou) ? 'Ver e reenviar' : 'Ver detalhes'),
+              ),
+            ),
           ],
         ),
       ),

@@ -33,6 +33,9 @@ jobs:
       - name: Testar rotação e verificação do backup
         run: bash deploy/backup/test-backup.sh
 
+      - name: Testar o monitor de alertas
+        run: bash deploy/monitor/test-alerta.sh
+
       - name: Configuração de teste (segredos aleatórios, só para este job)
         working-directory: deploy
         run: |

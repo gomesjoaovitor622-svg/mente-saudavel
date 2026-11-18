@@ -32,7 +32,7 @@ class Caixa:
         return re.search(r"\b(\d{6})\b", texto).group(1)  # type: ignore[union-attr]
 
 
-@pytest.fixture()
+@pytest.fixture
 def ctx() -> Iterator[tuple[TestClient, Caixa]]:
     engine = create_engine("sqlite://", connect_args={"check_same_thread": False}, poolclass=StaticPool)
 
@@ -59,7 +59,8 @@ def test_profissional_novo_fica_pendente_e_nao_aparece_na_busca_nem_recebe_sessa
 
 def test_config_publica_informa_fuso_sem_segredos(client):
     c = client.get("/config").json()
-    assert c["fuso"] == "America/Sao_Paulo" and "Brasília" in c["fuso_rotulo"]
+    assert c["fuso"] == "America/Sao_Paulo"
+    assert "Brasília" in c["fuso_rotulo"]
     assert set(c) == {"fuso", "fuso_rotulo", "email_ativo", "video_ativo"}
     assert c["email_ativo"] is False
 
@@ -111,7 +112,8 @@ def test_esqueci_senha_nao_revela_se_a_conta_existe(ctx):
     n = len(caixa.msgs)
     a = client.post("/auth/senha/esqueci", json={"email": "existe@x.com"})
     b = client.post("/auth/senha/esqueci", json={"email": "nao-existe@x.com"})
-    assert a.status_code == b.status_code == 204 and a.text == b.text
+    assert a.status_code == b.status_code == 204
+    assert a.text == b.text
     assert len(caixa.msgs) == n + 1  # só a conta real recebe e-mail
 
 

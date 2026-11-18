@@ -78,6 +78,8 @@ class Humor(Base):
     __table_args__ = (
         CheckConstraint("nivel BETWEEN 1 AND 5", name="ck_nivel"),
         Index("idx_humor_usuario", "usuario_id", "data_hora"),
+        # Idempotência: o app offline reenvia o MESMO registro de humor sem duplicá-lo.
+        Index("uq_humor_idempotencia", "usuario_id", "chave_idempotencia", unique=True, postgresql_where=_COM_CHAVE, sqlite_where=_COM_CHAVE),
     )
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
@@ -85,6 +87,7 @@ class Humor(Base):
     nivel: Mapped[int] = mapped_column(Integer)
     nota: Mapped[str] = mapped_column(Text, default="")
     data_hora: Mapped[datetime] = mapped_column(DateTime)
+    chave_idempotencia: Mapped[str | None] = mapped_column(String(64), nullable=True)
 
 
 class Avaliacao(Base):

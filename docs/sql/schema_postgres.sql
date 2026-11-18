@@ -60,12 +60,15 @@ CREATE TABLE humor_registros (
     nivel INTEGER NOT NULL, 
     nota TEXT NOT NULL, 
     data_hora TIMESTAMP WITHOUT TIME ZONE NOT NULL, 
+    chave_idempotencia VARCHAR(64), 
     PRIMARY KEY (id), 
     CONSTRAINT ck_nivel CHECK (nivel BETWEEN 1 AND 5), 
     FOREIGN KEY(usuario_id) REFERENCES usuarios (id) ON DELETE CASCADE
 );
 
 CREATE INDEX idx_humor_usuario ON humor_registros (usuario_id, data_hora);
+
+CREATE UNIQUE INDEX uq_humor_idempotencia ON humor_registros (usuario_id, chave_idempotencia) WHERE chave_idempotencia IS NOT NULL;
 
 CREATE TABLE avaliacoes (
     id SERIAL NOT NULL, 

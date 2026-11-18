@@ -15,7 +15,18 @@ from app.models import Usuario
 from app.security import criar_token, ler_token_com_versao
 
 COOKIE_SESSAO = "ms_sessao"
+IP_DESCONHECIDO = "desconhecido"
 CHAVE_IDEMPOTENCIA = re.compile(r"[A-Za-z0-9_-]{8,64}")
+
+
+def ip_do_cliente(request: Request) -> str:
+    """IP usado como chave dos limitadores. Único ponto que lê `request.client`.
+
+    Atrás do Caddy, o Uvicorn já troca `client.host` pelo IP real (`--proxy-headers`), mas só confia
+    no `X-Forwarded-For` vindo de `FORWARDED_ALLOW_IPS` (nunca `*` em produção). Sem cliente (ex.:
+    socket Unix) cai numa chave fixa e visível, em vez de um "?" que passava despercebido.
+    """
+    return request.client.host if request.client else IP_DESCONHECIDO
 
 
 class LimiteLogin:

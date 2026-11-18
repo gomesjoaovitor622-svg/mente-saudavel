@@ -5,7 +5,7 @@ sem prontuário, sem aprovação de profissional e sem e-mail. Por isso o passo 
 
 ## Pré-requisitos (uma vez)
 1. O servidor está no ar em HTTPS (`docs/LANCAMENTO-CHECKLIST.md`, item 5) e `https://SEU-DOMINIO/api/health` responde `{"status":"ok"}`.
-2. (Recomendado) chave de assinatura própria. Sem ela, cada build usa uma assinatura de teste e o Android recusa atualizar por cima:
+2. **Obrigatório para release:** chave de assinatura própria. O workflow **falha** (`release=true` ou tag `v*.*.*`) se qualquer um dos 4 segredos `ANDROID_KEYSTORE_*`/`ANDROID_KEY_*` faltar; só builds de teste (sem release) saem com assinatura de teste, que o Android recusa atualizar por cima:
    ```bash
    keytool -genkeypair -v -keystore mente.jks -alias mente -keyalg RSA -keysize 4096 -validity 10000
    base64 -w0 mente.jks > mente.jks.b64      # macOS: base64 -i mente.jks | tr -d '\n'
@@ -46,3 +46,22 @@ O APK gerado é só `arm64-v8a` (~20 MB): cobre os celulares atuais; aparelhos d
 
 ## Site (PWA) com a mesma API
 O site é compilado pelo CI com `API_URL=/api` (mesmo domínio, via Caddy) e servido pela pilha Docker (`deploy/`). Não precisa de parâmetro.
+
+## iPhone (iOS)
+O workflow **Build iOS** (`.github/workflows/build-ios.yml`) compila o app num runner macOS; a pasta `ios/` é gerada por `tools/preparar_ios.sh` (como a `android/`). Não há como compilar para iPhone fora de um macOS com Xcode.
+
+**Sem conta paga da Apple** — o artefato `MenteSaudavel-iOS` traz `MenteSaudavel-unsigned.ipa`. Instale pelo Mac/Windows com [Sideloadly](https://sideloadly.io) ou AltStore usando um Apple ID comum (o app expira em 7 dias e precisa ser reinstalado; o modo desenvolvedor do iPhone deve estar ligado).
+
+**Com Apple Developer Program (US$ 99/ano)** — crie em Settings > Secrets and variables > Actions:
+| Segredo | Conteúdo |
+|---|---|
+| `IOS_CERT_P12_B64` | certificado de distribuição/desenvolvimento exportado como .p12, em base64 (`base64 -i cert.p12`) |
+| `IOS_CERT_PASSWORD` | senha do .p12 |
+| `IOS_PROVISION_PROFILE_B64` | perfil `.mobileprovision` em base64 do ID do app (o log mostra o Bundle ID esperado) |
+| `IOS_TEAM_ID` | Team ID da conta (10 caracteres) |
+
+Variável opcional `IOS_EXPORT_METHOD`: `development`, `ad-hoc` (padrão) ou `app-store-connect` (TestFlight/App Store). Com os segredos o artefato inclui também `MenteSaudavel-signed.ipa`. Ad hoc só instala nos aparelhos (UDID) listados no perfil.
+
+**Sem build nativo (alternativa)** — com o site no ar em HTTPS, abra no Safari > Compartilhar > "Adicionar à Tela de Início" (PWA).
+
+Observação: o app usa Keychain (`flutter_secure_storage`) para o token e SQLite local; `API_URL` e `DEMO_MODE` funcionam como no Android.
