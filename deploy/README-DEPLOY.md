@@ -59,9 +59,9 @@ O site (Flutter web) e a API ficam no **mesmo domínio**: o site em `/`, a API e
 2. **Cadastro de profissional é aberto**: qualquer pessoa pode informar um CRP. Falta verificar o CRP (manual ou integração com o conselho).
 3. **LGPD**: dados de saúde mental são *dados sensíveis*. Antes de operar com pacientes reais: política de privacidade, termo de consentimento, DPO/encarregado, criptografia em repouso (disco do servidor/volume do banco), retenção e exclusão. A exclusão de conta já apaga tudo em cascata.
 4. **Sessão no navegador**: agora é um cookie `HttpOnly` + `Secure` + `SameSite=Strict` (o JavaScript não lê o token) e as ações exigem o cabeçalho `X-Requested-With` (anti-CSRF). Requer que site e API estejam no MESMO domínio (como no Caddy deste projeto). A página também tem Content-Security-Policy (no `Caddyfile`, com cada liberação explicada); o teste de navegador reprova se algum recurso for bloqueado por ela. No celular o token fica no Android Keystore / iOS Keychain (`flutter_secure_storage`).
-5. **Sem e-mail** (recuperar senha, confirmar cadastro) e **sem moderação** de avaliações.
+5. **E-mail opcional**: confirmação de cadastro e recuperação de senha funcionam quando `SMTP_HOST` e `SMTP_FROM` estão configurados (juntos); sem eles, os endpoints de e-mail respondem `503` e o agendamento de sessão não exige e-mail confirmado. Ainda **não há moderação** de avaliações.
 6. **Imagens Docker** (`python`, `postgres`, `caddy`) usam tags, não digests. Em produção, fixe por digest e atualize regularmente.
-7. **Videochamada**: o link Jitsi é derivado do ID da sessão (qualquer um com o link entra). Para sigilo clínico, use sala com senha/lobby.
+7. **Videochamada**: a sala é imprevisível (HMAC-SHA256 com `JWT_SECRET`) e o link leva um JWT com expiração; só os participantes da sessão recebem o link. Ainda não há lobby/senha de sala no Jitsi — se precisar de sigilo clínico reforçado, configure lobby no servidor Jitsi.
 8. **Fontes do Google**: o Flutter web baixa fontes de reserva (emoji e caracteres especiais) de `fonts.gstatic.com`. Isso expõe o IP do visitante ao Google (relevante para a LGPD). Correção futura: empacotar as fontes no app (`flutter: fonts:`) e compilar com as fontes locais. O teste de implantação lista os domínios externos como aviso.
 
 
