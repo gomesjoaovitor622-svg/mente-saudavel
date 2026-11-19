@@ -37,6 +37,21 @@ def _por_chave(db: Session, paciente_id: int, chave: str) -> Sessao | None:
     return db.scalar(select(Sessao).where(Sessao.paciente_id == paciente_id, Sessao.chave_idempotencia == chave))
 
 
+def _eh_violacao_unica(e: IntegrityError) -> bool:
+    """Detecta violação de UNIQUE sem depender do idioma da mensagem do banco.
+
+    O psycopg(sqlalchemy) no PostgreSQL em português diz "restrição de unicidade"/"duplicar valor",
+    enquanto o SQLite diz "UNIQUE constraint failed". O tipo da exceção é estável: UniqueViolation.
+    """
+    orig = e.orig
+    if orig is None:
+        return False
+    if "unique" in type(orig).__name__.lower():
+        return True
+    texto = str(orig).lower()
+    return any(sinal in texto for sinal in ("unique", "duplicate", "duplicar", "unicidade", "uq_"))
+
+
 def gravar_sessao(db: Session, prof_id: int, pac_id: int, quando: datetime, ignorar: int, chave: str | None = None) -> Sessao | None:
     """Confirma a gravação. Se o banco recusar por horário duplicado (corrida entre 2 requisições), responde 409.
 
@@ -46,8 +61,7 @@ def gravar_sessao(db: Session, prof_id: int, pac_id: int, quando: datetime, igno
         db.commit()
     except IntegrityError as e:
         db.rollback()
-        texto = str(e.orig).lower()
-        if "unique" not in texto and "duplicate" not in texto:
+        if not _eh_violacao_unica(e):
             raise
         if chave:
             existente = _por_chave(db, pac_id, chave)
