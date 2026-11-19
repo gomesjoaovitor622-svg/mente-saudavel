@@ -2,12 +2,12 @@ name: Servidor (API)
 
 # Qualidade e testes da API em SQLite E em PostgreSQL de verdade; confere a imagem Docker.
 on:
+  # Sem filtro de `paths`: os checks deste workflow são obrigatórios no ruleset, então precisam
+  # rodar em todo PR (inclusive os que só mudam docs/Flutter) para não deixar o merge pendurado.
   push:
     branches: [main, master, dev]
-    paths: ['server/**', 'deploy/**', '.github/workflows/server-ci.yml']
   pull_request:
     branches: [main, master]
-    paths: ['server/**', 'deploy/**', '.github/workflows/server-ci.yml']
   workflow_dispatch:
 
 concurrency:

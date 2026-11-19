@@ -1,5 +1,5 @@
 # Compila o site Flutter (modo servidor: API em /api, mesmo domínio) e o copia para o volume
-# compartilhado com o Caddy. Contexto de build: a RAIZ do repositório (veja docker-compose.yml).
+# compartilhado com o Caddy. Contexto de build: a RAIZ do repositório (veja docker-compose.prod.yml).
 FROM ghcr.io/cirruslabs/flutter:stable AS build
 WORKDIR /app
 COPY pubspec.yaml ./

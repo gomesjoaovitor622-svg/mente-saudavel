@@ -26,7 +26,7 @@ quando o APK está com assinatura de **teste**; configure a assinatura de produ�
 ## 2. Versão Web (aplicativo completo)
 
 O aplicativo completo é compilado pelo workflow **Site para servidor** (`.github/workflows/build-site.yml`) e pelo serviço `site`
-em `deploy/docker-compose.yml`. O artefato `site-web` é um pacote de arquivos estáticos; ele não inclui a API nem o banco.
+em `deploy/docker-compose.prod.yml`. O artefato `site-web` é um pacote de arquivos estáticos; ele não inclui a API nem o banco.
 
 **Implantação recomendada:** sirva o site e a API no **mesmo domínio** usando o Caddy e Docker Compose descritos em
 [`deploy/README-DEPLOY.md`](deploy/README-DEPLOY.md). A API fica em `/api`, e o site em `/`. Isso é importante porque a

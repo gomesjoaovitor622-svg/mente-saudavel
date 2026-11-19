@@ -16,7 +16,7 @@ from sqlalchemy.orm import Session
 
 from app import schemas, tempo
 from app.cripto import Cofre, ProntuarioIlegivel
-from app.erros import ErroDeNegocio, exigir_perfil
+from app.erros import ErroDeNegocio, exigir_profissional_aprovado
 from app.models import ProntuarioAcesso, ProntuarioEntrada, ProntuarioRevisao, Sessao, Usuario
 
 
@@ -32,7 +32,7 @@ class ServicoProntuario:
     # ---------------------------------------------------------------- acesso
     def exigir_vinculo(self, db: Session, prof: Usuario, paciente_id: int) -> Usuario:
         """404 (e não 403) para quem não tem vínculo: não revela quais pacientes existem."""
-        exigir_perfil(prof, "profissional")
+        exigir_profissional_aprovado(prof)
         paciente = db.get(Usuario, paciente_id)
         # Vínculo = tem (ou teve) sessão não cancelada com o paciente OU já escreveu prontuário dele. A segunda regra
         # mantém o acesso ao que o próprio profissional escreveu mesmo se as sessões forem canceladas (ex.: anonimização).
@@ -47,7 +47,7 @@ class ServicoProntuario:
         return paciente
 
     def _entrada_do_autor(self, db: Session, prof: Usuario, entrada_id: int) -> ProntuarioEntrada:
-        exigir_perfil(prof, "profissional")
+        exigir_profissional_aprovado(prof)
         e = db.get(ProntuarioEntrada, entrada_id)
         if e is None or e.profissional_id != prof.id:  # só o autor acessa
             raise ErroDeNegocio(404, "Registro não encontrado.")

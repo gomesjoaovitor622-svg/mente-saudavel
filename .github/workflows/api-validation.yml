@@ -4,7 +4,9 @@ name: API Validation
 #   quality ........... lint, tipagem estrita, SAST, testes unitários e cobertura
 #   reference-suite ... sobe o serviço isolado e roda contrato + conformidade + CORS + segurança (OBRIGATÓRIO)
 #   live-suite ........ APIs públicas reais usadas pelo produto (informativo, salvo live_blocking=true)
-#   gate .............. único check de contrato/segurança a exigir na proteção de branch
+#   gate .............. check de contrato/segurança do SERVIÇO DE REFERÊNCIA (ci/api-validation/reference_service).
+#                       Não cobre a API FastAPI em server/, nem as APIs live (informativas); os testes reais
+#                       da API e da imagem Docker ficam em server-ci.yml e são exigidos pelo ruleset.
 #   executive-report .. relatório de conformidade + atestado de procedência (única job com id-token)
 
 on:

@@ -57,6 +57,16 @@ def test_profissional_novo_fica_pendente_e_nao_aparece_na_busca_nem_recebe_sessa
     assert client.post("/sessoes", headers=pac["h"], json={"profissional_id": pro["id"], "data_hora": futuro(), "modalidade": "Online"}).status_code == 201
 
 
+def test_profissional_pendente_nao_acessa_rotas_do_painel(client):
+    """A aprovação é exigida nas rotas do profissional, não só para aparecer na busca."""
+    pro = cadastrar(client, "pendente@x.com", "profissional", aprovado=False)
+    for caminho in ("/profissional/financeiro", "/profissional/pacientes"):
+        assert client.get(caminho, headers=pro["h"]).status_code == 403
+    client.app.state.aprovar(pro["id"])  # type: ignore[attr-defined]
+    for caminho in ("/profissional/financeiro", "/profissional/pacientes"):
+        assert client.get(caminho, headers=pro["h"]).status_code == 200
+
+
 def test_config_publica_informa_fuso_sem_segredos(client):
     c = client.get("/config").json()
     assert c["fuso"] == "America/Sao_Paulo" and "Brasília" in c["fuso_rotulo"]

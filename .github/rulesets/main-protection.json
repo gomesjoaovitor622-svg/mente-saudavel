@@ -25,7 +25,9 @@
           { "context": "Gate" },
           { "context": "Security Gate" },
           { "context": "flutter analyze" },
-          { "context": "Analyze (python)" }
+          { "context": "Analyze (python)" },
+          { "context": "Testes (SQLite + PostgreSQL)" },
+          { "context": "Imagem Docker" }
         ]
       }
     }
